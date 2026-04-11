@@ -110,23 +110,22 @@ export async function POST(request: Request) {
     // Reconnect WebSocket to the new endpoint
     reconnectWebSocket(testnet);
 
-    // Update the execution engine with new credentials
+    // Reload OANDA credentials for new mode
     try {
-      const { automation } = await import("@/lib/automation");
-      const engine = automation.getExecutionEngine();
-      engine.updateCredentials();
+      const { loadOandaCredentials } = await import("@/lib/oanda-credentials");
+      await loadOandaCredentials();
     } catch {
       // Engine may not be initialized, that's ok
     }
 
     return NextResponse.json({
       success: true,
-      mode: testnet ? "testnet" : "real",
+      mode: testnet ? "demo" : "live",
       changed: true,
-      previousMode: previousMode ? "testnet" : "real",
+      previousMode: previousMode ? "demo" : "live",
       message: testnet
-        ? "Switched to TESTNET (testnet.binance.vision) - Capital ficticio. Trades use fake money."
-        : "Switched to REAL ACCOUNT (api.binance.com) - REAL MONEY. Be careful!",
+        ? "Switched to OANDA Demo account"
+        : "Switched to OANDA Live account - REAL MONEY",
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

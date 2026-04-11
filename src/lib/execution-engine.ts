@@ -2,15 +2,28 @@
 // RECO-TRADING - Execution Engine
 // ============================================
 // Core trading execution loop that:
-// - Fetches market data
+// - Fetches market data via Broker Manager (OANDA)
 // - Runs analysis + strategies + ML
 // - Validates all conditions
-// - Executes trades via Binance API
+// - Executes trades via OANDA API
 // - Manages open positions with trailing stops
 // - Records everything to database
 // ============================================
 
-import { getKlines, getOrderBook, getTickerPrice, placeMarketOrder, placeStopLossOrder, placeTakeProfitOrder, cancelOrder, getTradingFee, isTestnetMode, getCurrentCredentials, hasCredentials } from '@/lib/binance';
+import {
+  getKlines,
+  getOrderBook,
+  getTickerPrice,
+  placeMarketOrder,
+  placeStopOrder,
+  closePosition as brokerClosePosition,
+  getAccountBalance,
+  isMarketOpen,
+  isBrokerConnected,
+  getBrokerName,
+  getActiveSymbol,
+  getSymbolSpec,
+} from '@/lib/broker-manager';
 import { analyzeMarket } from '@/lib/analysis-engine';
 import type { Candle, FullAnalysis, OrderBookData } from '@/lib/analysis-engine';
 import { StrategyEnsemble } from '@/lib/strategies';
@@ -103,10 +116,8 @@ export interface PositionAction {
 // ---- Configuration ----
 
 interface ExecutionConfig {
-  pair: string;
-  testnet: boolean;
-  apiKey: string;
-  apiSecret: string;
+  symbol: string;              // Trading symbol (e.g., XAU_USD)
+  broker: string;              // Broker name (e.g., 'oanda')
   interval: number;            // tick interval in ms
   minConfidence: number;
   minMLConfidence: number;
@@ -157,13 +168,10 @@ export class ExecutionEngine {
   private positionSizeMultiplier: number = 1;
 
   constructor(config?: Partial<ExecutionConfig>) {
-    const creds = getCurrentCredentials();
     this.config = {
-      pair: process.env.TRADING_PAIR || 'BTCUSDT',
-      testnet: isTestnetMode(),
-      apiKey: creds.apiKey,
-      apiSecret: creds.apiSecret,
-      interval: 30000,
+      symbol: process.env.TRADING_SYMBOL || 'XAU_USD',
+      broker: 'oanda',
+      interval: parseInt(process.env.TICK_INTERVAL || '3000'),
       minConfidence: parseFloat(process.env.MIN_CONFIDENCE || '0.35'),
       minMLConfidence: 0.45,
       useML: true,
@@ -177,7 +185,7 @@ export class ExecutionEngine {
     this.smartStopLoss = new SmartStopLoss();
     this.smartStopTrade = new SmartStopTrade();
 
-    console.log(`[ENGINE] Initialized. Pair: ${this.config.pair}, Testnet: ${this.config.testnet}, DryRun: ${this.config.dryRun}, Creds: ${hasCredentials(this.config.testnet) ? 'SET' : 'NOT SET'}`);
+    console.log(`[ENGINE] Initialized. Symbol: ${this.config.symbol}, Broker: ${this.config.broker}, DryRun: ${this.config.dryRun}`);
 
     // Load persisted configurations from DB asynchronously
     this.initSubsystemsFromDB().catch(err => console.error('[ENGINE] Failed to load configs from DB:', err));
@@ -202,16 +210,18 @@ export class ExecutionEngine {
 
   /** Get current engine status */
   getStatus(): EngineStatus {
+    const hasOpen = this.currentPosition !== null;
+    const totalPnl = hasOpen && this.currentPosition ? this.currentPosition.unrealizedPnl : 0;
     return {
       running: this.isRunning,
-      pair: this.config.pair,
-      testnet: this.config.testnet,
+      pair: this.config.symbol,
+      testnet: false,
       lastTick: this.lastAnalysis ? Date.now() : 0,
       currentPrice: this.lastAnalysis?.price || 0,
-      hasOpenPosition: this.currentPosition !== null,
-      positionSide: this.currentPosition?.side,
-      positionEntry: this.currentPosition?.entryPrice,
-      positionPnl: this.currentPosition?.unrealizedPnl,
+      hasOpenPosition: hasOpen,
+      positionSide: hasOpen ? this.currentPosition?.side : undefined,
+      positionEntry: hasOpen ? this.currentPosition?.entryPrice : undefined,
+      positionPnl: hasOpen ? totalPnl : undefined,
       signal: this.lastSignal,
       confidence: this.lastEnsemble?.confidence || 0,
       mlDirection: this.lastMLPrediction?.direction || null,
@@ -223,8 +233,8 @@ export class ExecutionEngine {
       tickCount: this.tickCount,
       errorCount: this.errorCount,
       lastError: this.lastError,
-      smartStopActive: this.currentPosition !== null,
-      smartStopPhase: (this.currentPosition && this.lastAnalysis) ? this.smartStopLoss.getStatus(this.currentPosition, this.lastAnalysis).currentPhase : 0,
+      smartStopActive: hasOpen,
+      smartStopPhase: (hasOpen && this.currentPosition && this.lastAnalysis) ? this.smartStopLoss.getStatus(this.currentPosition, this.lastAnalysis).currentPhase : 0,
       smartStopTradePaused: this.smartStopTrade.getStatus().isPaused,
       smartStopTradeReason: this.smartStopTrade.getStatus().pauseReason,
       positionSizeMultiplier: this.positionSizeMultiplier,
@@ -242,13 +252,13 @@ export class ExecutionEngine {
 
       // Always fetch latest price (no cache)
       const [price, orderBook] = await Promise.all([
-        getTickerPrice(this.config.pair, this.config.testnet),
-        getOrderBook(this.config.pair, 10, this.config.testnet).catch(() => null),
+        getTickerPrice(this.config.symbol),
+        getOrderBook(this.config.symbol, 10).catch(() => null),
       ]);
 
       // Cache 5m klines - fetch new only every 15s
       if (now - this.lastKlineFetch5m > this.KLINE_CACHE_5M || this.candles5m.length === 0) {
-        this.candles5m = await getKlines(this.config.pair, '5m', 200, this.config.testnet);
+        this.candles5m = await getKlines(this.config.symbol, '5m', 200);
         this.lastKlineFetch5m = now;
       }
 
@@ -256,9 +266,9 @@ export class ExecutionEngine {
       if (now - this.lastKlineFetchHtf > this.KLINE_CACHE_HTF || this.candles15m.length === 0) {
         try {
           const [c15m, c1h, c4h] = await Promise.all([
-            getKlines(this.config.pair, '15m', 200, this.config.testnet),
-            getKlines(this.config.pair, '1h', 200, this.config.testnet),
-            getKlines(this.config.pair, '4h', 200, this.config.testnet),
+            getKlines(this.config.symbol, '15m', 200),
+            getKlines(this.config.symbol, '1h', 200),
+            getKlines(this.config.symbol, '4h', 200),
           ]);
           this.candles15m = c15m;
           this.candles1h = c1h;
@@ -270,15 +280,11 @@ export class ExecutionEngine {
       }
 
       // Fetch real balance periodically
-      if (hasCredentials(this.config.testnet) && this.tickCount % 10 === 0) {
+      if (isBrokerConnected() && this.tickCount % 10 === 0) {
         try {
-          const { getAccountBalance } = await import('@/lib/binance');
-          const accountData = await getAccountBalance(this.config.apiKey, this.config.apiSecret, this.config.testnet);
-          const usdtBal = accountData?.balances?.find((b: any) => b.asset === "USDT");
-          if (usdtBal) {
-            this.lastRealBalance = parseFloat(usdtBal.free) + parseFloat(usdtBal.locked);
-            console.log(`[ENGINE] Real balance updated: ${this.lastRealBalance.toFixed(2)} USDT`);
-          }
+          const accountData = await getAccountBalance();
+          this.lastRealBalance = accountData.balance;
+          console.log(`[ENGINE] Real balance updated: ${this.lastRealBalance.toFixed(2)} ${accountData.currency}`);
         } catch (err) {
           console.log('[ENGINE] Balance fetch failed, using cached');
         }
@@ -343,7 +349,7 @@ export class ExecutionEngine {
           try {
             await db.mLPrediction.create({
               data: {
-                pair: this.config.pair,
+                pair: this.config.symbol,
                 direction: mlPrediction.direction,
                 confidence: mlPrediction.confidence,
                 modelType: mlPrediction.modelType,
@@ -495,7 +501,7 @@ export class ExecutionEngine {
         try {
           const trade = await db.trade.create({
             data: {
-              pair: this.config.pair,
+              pair: this.config.symbol,
               side,
               entryPrice: price,
               quantity,
@@ -514,7 +520,7 @@ export class ExecutionEngine {
           const position = await db.position.create({
             data: {
               tradeId: trade.id,
-              pair: this.config.pair,
+              pair: this.config.symbol,
               side,
               entryPrice: price,
               currentPrice: price,
@@ -528,7 +534,7 @@ export class ExecutionEngine {
           this.currentPosition = {
             id: position.id,
             tradeId: trade.id,
-            pair: this.config.pair,
+            pair: this.config.symbol,
             side,
             entryPrice: price,
             currentPrice: price,
@@ -543,7 +549,7 @@ export class ExecutionEngine {
 
           this.riskManager.recordTrade({
             id: trade.id,
-            pair: this.config.pair,
+            pair: this.config.symbol,
             side,
             entryPrice: price,
             quantity,
@@ -564,7 +570,7 @@ export class ExecutionEngine {
           return {
             success: true,
             orderId: `dry_${trade.id}`,
-            trade: { id: trade.id, pair: this.config.pair, side, entryPrice: price, quantity, pnl: 0, pnlPercent: 0, confidence: signal.confidence, status: 'OPEN', signal: side, strategy: 'Ensemble', openedAt: new Date(), commission: 0 },
+            trade: { id: trade.id, pair: this.config.symbol, side, entryPrice: price, quantity, pnl: 0, pnlPercent: 0, confidence: signal.confidence, status: 'OPEN', signal: side, strategy: 'Ensemble', openedAt: new Date(), commission: 0 },
             message: `Dry run ${side} trade opened @ ${price}`,
           };
         } catch (dbErr) {
@@ -573,24 +579,17 @@ export class ExecutionEngine {
         }
       }
 
-      // REAL ORDER: Place via Binance API
-      if (!this.config.apiKey || !this.config.apiSecret) {
-        console.error('[ENGINE] Missing API keys for real order placement');
-        return { success: false, error: 'No API keys configured', message: 'Configure BINANCE_TESTNET_API_KEY and BINANCE_TESTNET_API_SECRET in .env' };
+      // REAL ORDER: Place via Broker Manager
+      if (!isBrokerConnected()) {
+        console.error('[ENGINE] Broker not connected');
+        return { success: false, error: 'Broker not connected', message: 'Configure OANDA credentials in settings' };
       }
 
-      console.log(`[ENGINE] Placing real ${side} market order: ${quantity} ${this.config.pair}`);
+      console.log(`[ENGINE] Placing ${side} order: ${quantity} ${this.config.symbol}`);
 
       // Place market order
       const orderSide = side === 'LONG' ? 'BUY' : 'SELL';
-      const orderResult = await placeMarketOrder(
-        this.config.apiKey,
-        this.config.apiSecret,
-        this.config.pair,
-        orderSide,
-        quantity,
-        this.config.testnet
-      );
+      const orderResult = await placeMarketOrder(this.config.symbol, orderSide, quantity);
 
       if (!orderResult.success) {
         console.error(`[ENGINE] Order failed: ${orderResult.error}`);
@@ -610,7 +609,7 @@ export class ExecutionEngine {
         const trade = await db.trade.create({
           data: {
             externalId: String(orderResult.orderId),
-            pair: this.config.pair,
+            pair: this.config.symbol,
             side,
             entryPrice: price,
             quantity,
@@ -628,7 +627,7 @@ export class ExecutionEngine {
         const position = await db.position.create({
           data: {
             tradeId: trade.id,
-            pair: this.config.pair,
+            pair: this.config.symbol,
             side,
             entryPrice: price,
             currentPrice: price,
@@ -642,7 +641,7 @@ export class ExecutionEngine {
         this.currentPosition = {
           id: position.id,
           tradeId: trade.id,
-          pair: this.config.pair,
+          pair: this.config.symbol,
           side,
           entryPrice: price,
           currentPrice: price,
@@ -657,7 +656,7 @@ export class ExecutionEngine {
 
         this.riskManager.recordTrade({
           id: trade.id,
-          pair: this.config.pair,
+          pair: this.config.symbol,
           side,
           entryPrice: price,
           quantity,
@@ -678,7 +677,7 @@ export class ExecutionEngine {
         return {
           success: true,
           orderId: String(orderResult.orderId),
-          trade: { id: trade.id, pair: this.config.pair, side, entryPrice: price, quantity, pnl: 0, pnlPercent: 0, confidence: signal.confidence, status: 'OPEN', signal: side, strategy: 'Ensemble', openedAt: new Date(), commission },
+          trade: { id: trade.id, pair: this.config.symbol, side, entryPrice: price, quantity, pnl: 0, pnlPercent: 0, confidence: signal.confidence, status: 'OPEN', signal: side, strategy: 'Ensemble', openedAt: new Date(), commission },
           message: `Real ${side} trade opened @ ${price}, OrderID: ${orderResult.orderId}`,
         };
       } catch (dbErr) {
@@ -716,17 +715,10 @@ export class ExecutionEngine {
 
     try {
       // Place real closing order on Binance (only for non-dry-run trades)
-      if (!this.config.dryRun && this.config.apiKey && this.config.apiSecret) {
+      if (!this.config.dryRun && isBrokerConnected()) {
         const closeSide = pos.side === 'LONG' ? 'SELL' : 'BUY';
-        console.log(`[ENGINE] Placing real ${closeSide} order to close position: ${pos.quantity} ${pos.pair}`);
-        const closeResult = await placeMarketOrder(
-          this.config.apiKey,
-          this.config.apiSecret,
-          pos.pair,
-          closeSide,
-          pos.quantity,
-          this.config.testnet
-        );
+        console.log(`[ENGINE] Placing real ${closeSide} order to close position: ${pos.quantity} ${this.config.symbol}`);
+        const closeResult = await placeMarketOrder(this.config.symbol, closeSide, pos.quantity);
         if (!closeResult.success) {
           console.error(`[ENGINE] Failed to close position on exchange: ${closeResult.error}`);
           // Still update DB locally even if exchange order fails
@@ -758,7 +750,7 @@ export class ExecutionEngine {
         await db.smartStopEvent.create({
           data: {
             tradeId: pos.tradeId,
-            pair: pos.pair,
+            pair: this.config.symbol,
             stopType: 'TRAILING',
             previousStop: pos.stopLoss,
             newStop: pos.trailingStop,
@@ -770,7 +762,7 @@ export class ExecutionEngine {
       this.dailyPnl += pnl;
       this.riskManager.recordTrade({
         id: pos.tradeId,
-        pair: pos.pair,
+        pair: this.config.symbol,
         side: pos.side,
         entryPrice: pos.entryPrice,
         exitPrice: currentPrice,
@@ -788,7 +780,7 @@ export class ExecutionEngine {
 
       const trade: Trade = {
         id: pos.tradeId,
-        pair: pos.pair,
+        pair: this.config.symbol,
         side: pos.side,
         entryPrice: pos.entryPrice,
         exitPrice: currentPrice,
@@ -840,6 +832,36 @@ export class ExecutionEngine {
     } else {
       pos.unrealizedPnl = (pos.entryPrice - currentPrice) * pos.quantity;
       pos.lowestPrice = Math.min(pos.lowestPrice || pos.entryPrice, currentPrice);
+    }
+
+    // UPDATE DB every tick so dashboard shows real-time PnL
+    await this.updatePositionDB(pos);
+
+    // === AGGRESSIVE QUICK PROFIT TAKING (Broker-style) ===
+    const profitPct = pos.side === 'LONG'
+      ? ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100
+      : ((pos.entryPrice - currentPrice) / pos.entryPrice) * 100;
+    const timeOpenSec = (Date.now() - pos.openedAt.getTime()) / 1000;
+
+    // 0.3%+ profit after 15s → scalp
+    if (profitPct >= 0.3 && timeOpenSec >= 15) {
+      console.log(`[ENGINE] 💰 Scalp: ${profitPct.toFixed(2)}% after ${timeOpenSec.toFixed(0)}s`);
+      return { type: 'CLOSE', message: `Scalp ${profitPct.toFixed(2)}%` };
+    }
+    // 0.8%+ profit → close on weakness or 30s+
+    if (profitPct >= 0.8 && (timeOpenSec >= 30 || analysis.rsi > 65 || analysis.rsi < 35)) {
+      console.log(`[ENGINE] 💰 Secure: ${profitPct.toFixed(2)}% after ${timeOpenSec.toFixed(0)}s`);
+      return { type: 'CLOSE', message: `Secure ${profitPct.toFixed(2)}%` };
+    }
+    // 2%+ profit → aggressive close
+    if (profitPct >= 2.0) {
+      console.log(`[ENGINE] 💰💰 Strong profit: ${profitPct.toFixed(2)}%`);
+      return { type: 'CLOSE', message: `Lock ${profitPct.toFixed(2)}%` };
+    }
+    // -1% loss after 20s → cut loss
+    if (profitPct <= -1.0 && timeOpenSec >= 20) {
+      console.log(`[ENGINE] 🛑 Cut loss: ${profitPct.toFixed(2)}% after ${timeOpenSec.toFixed(0)}s`);
+      return { type: 'CLOSE', message: `Cut ${profitPct.toFixed(2)}%` };
     }
 
     // Check basic stop-loss and take-profit FIRST (hard limits)
@@ -909,17 +931,10 @@ export class ExecutionEngine {
         console.log(`[ENGINE] CLOSE_PARTIAL: closing ${closePct * 100}% (${closeQty}) of position, keeping ${reducedQty}`);
 
         // Place real partial closing order on Binance (only for non-dry-run trades)
-        if (!this.config.dryRun && this.config.apiKey && this.config.apiSecret) {
+        if (!this.config.dryRun && isBrokerConnected()) {
           const closeSide = pos.side === 'LONG' ? 'SELL' : 'BUY';
-          console.log(`[ENGINE] Placing real ${closeSide} order for partial close: ${closeQty} ${pos.pair}`);
-          const partialCloseResult = await placeMarketOrder(
-            this.config.apiKey,
-            this.config.apiSecret,
-            pos.pair,
-            closeSide,
-            closeQty,
-            this.config.testnet
-          );
+          console.log(`[ENGINE] Placing real ${closeSide} order for partial close: ${closeQty} ${this.config.symbol}`);
+          const partialCloseResult = await placeMarketOrder(this.config.symbol, closeSide, closeQty);
           if (!partialCloseResult.success) {
             console.error(`[ENGINE] Failed to execute partial close on exchange: ${partialCloseResult.error}`);
           } else {
@@ -997,6 +1012,26 @@ export class ExecutionEngine {
     } catch (err) {
       console.error('[ENGINE] Update SL error:', err);
     }
+  }
+
+  /** Update position in database - called every tick to sync PnL */
+  private async updatePositionDB(pos: any): Promise<void> {
+    try {
+      await db.position.update({
+        where: { id: pos.id },
+        data: {
+          currentPrice: pos.currentPrice,
+          unrealizedPnl: pos.unrealizedPnl,
+          highestPrice: pos.highestPrice,
+          lowestPrice: pos.lowestPrice,
+        },
+      });
+      const pnlPct = pos.entryPrice > 0 ? (pos.unrealizedPnl / (pos.entryPrice * pos.quantity)) * 100 : 0;
+      await db.trade.update({
+        where: { id: pos.tradeId },
+        data: { pnl: +pos.unrealizedPnl.toFixed(2), pnlPercent: +pnlPct.toFixed(2), status: 'OPEN' },
+      });
+    } catch (err) { /* Silent fail */ }
   }
 
   /** Calculate position size based on risk parameters */
@@ -1112,12 +1147,12 @@ export class ExecutionEngine {
   /** Change the trading pair dynamically */
   async setPair(newPair: string): Promise<void> {
     if (this.currentPosition) {
-      console.warn(`[ENGINE] Cannot change pair while position is open on ${this.config.pair}`);
+      console.warn(`[ENGINE] Cannot change pair while position is open on ${this.config.symbol}`);
       return;
     }
     const cleanPair = newPair.replace("/", "");
-    console.log(`[ENGINE] Switching pair from ${this.config.pair} to ${cleanPair}`);
-    this.config.pair = cleanPair;
+    console.log(`[ENGINE] Switching pair from ${this.config.symbol} to ${cleanPair}`);
+    this.config.symbol = cleanPair;
     // Clear cached candles to force fresh fetch
     this.candles5m = [];
     this.candles15m = [];
@@ -1141,7 +1176,7 @@ export class ExecutionEngine {
 
   /** Get current pair */
   getPair(): string {
-    return this.config.pair;
+    return this.config.symbol;
   }
 
   /** Load persisted subsystem configurations from DB */
@@ -1272,17 +1307,20 @@ export class ExecutionEngine {
   getLastMLPrediction(): MLPrediction | null { return this.lastMLPrediction; }
   getCurrentPosition(): Position | null { return this.currentPosition; }
 
-  /** Update API credentials dynamically (when switching modes) */
-  updateCredentials(): void {
-    const creds = getCurrentCredentials();
-    this.config.testnet = isTestnetMode();
-    this.config.apiKey = creds.apiKey;
-    this.config.apiSecret = creds.apiSecret;
-    // Clear cached candles to force fresh fetch from new endpoint
+  /** Update symbol dynamically */
+  async updateSymbol(newSymbol: string): Promise<void> {
+    if (this.currentPosition) {
+      console.warn(`[ENGINE] Cannot change symbol while position is open on ${this.config.symbol}`);
+      return;
+    }
+    console.log(`[ENGINE] Changing symbol from ${this.config.symbol} to ${newSymbol}`);
+    this.config.symbol = newSymbol;
     this.candles5m = [];
     this.candles15m = [];
     this.candles1h = [];
     this.candles4h = [];
-    console.log(`[ENGINE] Credentials updated: Testnet=${this.config.testnet}, Key=${creds.apiKey ? 'SET' : 'NOT SET'}`);
+    this.lastAnalysis = null;
+    this.lastEnsemble = null;
+    this.lastMLPrediction = null;
   }
 }

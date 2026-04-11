@@ -38,13 +38,14 @@ data/
 prisma/migrations/
 prisma/*.db
 
-# Logs (may contain sensitive info)
-*.log
-logs/
-dev.log
-server.log
+# AI Trading System
+models/
+logs/training/
+*.onnx
+*.pb
+*.h5
 
-# Debug
+# Logs (may contain sensitive info)
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -94,3 +95,6 @@ public/sw.js
 public/workbox-*.js
 public/sw.js.map
 public/workbox-*.js.map
+
+# OANDA credentials file
+oanda-credentials.json

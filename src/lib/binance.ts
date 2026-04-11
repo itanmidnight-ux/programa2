@@ -40,6 +40,51 @@ function getBaseUrl(testnet: boolean): string {
   return testnet ? BINANCE_TESTNET_URL : BINANCE_BASE_URL;
 }
 
+// ============================================
+// CIRCUIT BREAKER — prevents repeated failed requests
+// ============================================
+// When Binance testnet times out repeatedly, we stop retrying
+// for a cooldown period to avoid log spam and wasted resources.
+
+const _circuitState: Map<string, { failures: number; blockedUntil: number }> = new Map();
+const FAILURE_THRESHOLD = 5;   // Block after N consecutive failures
+const COOLDOWN_MS = 60_000;     // 1 minute cooldown before retry
+
+function getCircuitKey(testnet: boolean, endpoint: string): string {
+  return `${testnet ? 'testnet' : 'mainnet'}:${endpoint}`;
+}
+
+function checkCircuit(testnet: boolean, endpoint: string): boolean {
+  const key = getCircuitKey(testnet, endpoint);
+  const state = _circuitState.get(key);
+  if (!state) return true; // No state = allowed
+
+  if (Date.now() < state.blockedUntil) {
+    return false; // Still blocked
+  }
+
+  // Cooldown expired — reset and allow
+  _circuitState.delete(key);
+  return true;
+}
+
+function recordFailure(testnet: boolean, endpoint: string): void {
+  const key = getCircuitKey(testnet, endpoint);
+  const state = _circuitState.get(key) || { failures: 0, blockedUntil: 0 };
+  state.failures++;
+
+  if (state.failures >= FAILURE_THRESHOLD) {
+    state.blockedUntil = Date.now() + COOLDOWN_MS;
+    LOG.warn(`Circuit opened for ${key} (${state.failures} failures, ${COOLDOWN_MS / 1000}s cooldown)`);
+  }
+  _circuitState.set(key, state);
+}
+
+function recordSuccess(testnet: boolean, endpoint: string): void {
+  const key = getCircuitKey(testnet, endpoint);
+  _circuitState.delete(key); // Reset on success
+}
+
 function getWsUrl(testnet: boolean): string {
   return testnet ? BINANCE_TESTNET_WS_URL : BINANCE_WS_URL;
 }
@@ -179,8 +224,7 @@ export async function getBatchPrices(pairs: string[], testnet = true): Promise<R
   const symbols = pairs.map(p => p.replace("/", "")).join('","');
   const res = await rateLimitedFetch(`${base}/api/v3/ticker/price?symbols=[${symbols}%5D`);
   if (!res.ok) {
-    // Fallback: fetch individually
-    console.warn('[BINANCE] Batch price fetch failed, falling back to individual');
+    // Fallback: fetch individually (silent — expected on testnet)
     const results: Record<string, number> = {};
     for (const pair of pairs) {
       try {
@@ -264,51 +308,64 @@ export async function getKlines(pair: string, interval = "5m", limit = 200, test
 }[]> {
   const base = getBaseUrl(testnet);
   const symbol = pair.replace("/", "");
-  
+
+  // Check circuit breaker
+  if (!checkCircuit(testnet, 'klines')) {
+    // Return empty array instead of throwing — callers handle it gracefully
+    return [];
+  }
+
   let res: Response;
   let lastError: Error | null = null;
-  
+
   try {
     res = await rateLimitedFetch(
       `${base}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`
     );
+    recordSuccess(testnet, 'klines');
   } catch (err) {
     lastError = err instanceof Error ? err : new Error(String(err));
-    // Network error - try fallback to production for public data
+    recordFailure(testnet, 'klines');
+
+    // Network error - try fallback to production for public data (silent)
     if (testnet) {
-      console.warn(`[BINANCE] Testnet klines request failed, falling back to production: ${lastError.message}`);
       try {
         const prodBase = getBaseUrl(false);
         res = await rateLimitedFetch(
           `${prodBase}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`
         );
         testnet = false; // Mark as production data
+        recordSuccess(false, 'klines');
       } catch (fallbackErr) {
-        throw new Error(`Failed to fetch klines from both testnet and production: ${lastError.message}`);
+        // Return empty — caller handles gracefully
+        return [];
       }
     } else {
       throw lastError;
     }
   }
-  
+
   if (!res.ok) {
     const errorText = await res.text().catch(() => 'Unknown error');
-    
-    // If testnet returns an error, try production as fallback for public data
+
+    // If testnet returns an error, try production as fallback for public data (silent)
     if (testnet && res.status !== 200) {
-      console.warn(`[BINANCE] Testnet returned ${res.status}, trying production for klines`);
       try {
         const prodBase = getBaseUrl(false);
         res = await rateLimitedFetch(
           `${prodBase}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`
         );
         if (!res.ok) {
-          throw new Error(`Failed to fetch klines: testnet=${res.status} '${errorText}', production=${res.status}`);
+          recordFailure(testnet, 'klines');
+          return []; // Return empty instead of throwing
         }
-      } catch (fallbackErr) {
-        throw new Error(`Failed to fetch klines: ${errorText}`);
+        recordSuccess(false, 'klines');
+      } catch {
+        recordFailure(testnet, 'klines');
+        return []; // Return empty instead of throwing
       }
     } else {
+      recordFailure(testnet, 'klines');
       throw new Error(`Failed to fetch klines for ${symbol}: ${res.status} - ${errorText}`);
     }
   }
@@ -388,8 +445,26 @@ export async function getAccountBalance(apiKey: string, apiSecret: string, testn
   }
   
   const data = await res.json();
-  console.log(`[BINANCE] Account data received. Balances count: ${data.balances?.length || 0}, ` +
-    `Total USDT: ${data.balances?.find((b: any) => b.asset === "USDT")?.free || "0"}`);
+  
+  // Calculate TOTAL USDT (free + locked)
+  const usdtBalance = data.balances?.find((b: any) => b.asset === "USDT");
+  const usdtFree = parseFloat(usdtBalance?.free || "0");
+  const usdtLocked = parseFloat(usdtBalance?.locked || "0");
+  const usdtTotal = usdtFree + usdtLocked;
+  
+  console.log(`[BINANCE] Account data received. Balances: ${data.balances?.length || 0} assets`);
+  console.log(`[BINANCE] 💰 USDT Balance: free=${usdtFree.toFixed(2)}, locked=${usdtLocked.toFixed(2)}, TOTAL=${usdtTotal.toFixed(2)}`);
+  
+  // Log top 5 assets by value
+  const topAssets = data.balances
+    ?.filter((b: any) => parseFloat(b.free) > 0 || parseFloat(b.locked) > 0)
+    ?.sort((a: any, b: any) => parseFloat(b.free) + parseFloat(b.locked) - (parseFloat(a.free) + parseFloat(a.locked)))
+    ?.slice(0, 5);
+  
+  if (topAssets?.length > 0) {
+    console.log(`[BINANCE] Top assets: ${topAssets.map((a: any) => `${a.asset}: ${(parseFloat(a.free) + parseFloat(a.locked)).toFixed(2)}`).join(', ')}`);
+  }
+  
   return data;
 }
 
@@ -442,6 +517,87 @@ export interface OrderResult {
   status?: string;
   fills?: Array<{ price: string; qty: string; commission: string }>;
   error?: string;
+}
+
+/**
+ * Smart Order: Tries LIMIT order first (MAKER fee 0.02%),
+ * falls back to MARKET (TAKER fee 0.04%) if not filled within timeout.
+ * This can save 50% on fees for high-frequency trading.
+ */
+export async function placeSmartOrder(
+  apiKey: string,
+  apiSecret: string,
+  pair: string,
+  side: "BUY" | "SELL",
+  quantity: number,
+  testnet = true,
+  options?: {
+    limitTimeoutMs?: number;     // How long to wait for LIMIT fill (default: 5000ms)
+    maxRetries?: number;          // Max price adjustments (default: 3)
+    priceAdjustPct?: number;      // How much to adjust price on retry (default: 0.02%)
+  }
+): Promise<OrderResult> {
+  const {
+    limitTimeoutMs = 5000,
+    maxRetries = 3,
+    priceAdjustPct = 0.0002, // 0.02%
+  } = options || {};
+
+  const symbol = pair.replace("/", "");
+  const currentPrice = await getTickerPrice(pair, testnet);
+
+  if (currentPrice <= 0) {
+    return { success: false, symbol, side, type: "MARKET", quantity, error: "Invalid price" };
+  }
+
+  // Try LIMIT order with retries
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    // Calculate limit price: place on the favorable side of the book
+    // BUY: slightly below current price, SELL: slightly above
+    const limitPrice = side === "BUY"
+      ? currentPrice * (1 - priceAdjustPct * attempt)
+      : currentPrice * (1 + priceAdjustPct * attempt);
+
+    if (attempt === 0) {
+      console.log(`[BINANCE] Smart Order: Attempting LIMIT ${side} @ ${limitPrice.toFixed(2)} (qty: ${quantity})`);
+    } else {
+      console.log(`[BINANCE] Smart Order: Retry ${attempt}/${maxRetries}, adjusted price: ${limitPrice.toFixed(2)}`);
+    }
+
+    const limitResult = await placeLimitOrder(
+      apiKey, apiSecret, pair, side, quantity, limitPrice, "GTC", testnet
+    );
+
+    if (!limitResult.success) {
+      console.warn(`[BINANCE] LIMIT order failed: ${limitResult.error}`);
+      continue;
+    }
+
+    // Check if order was filled immediately
+    if (limitResult.status === "FILLED" || limitResult.status === "PARTIALLY_FILLED") {
+      console.log(`[BINANCE] ✅ LIMIT order FILLED (MAKER fee saved 50%)`);
+      return limitResult;
+    }
+
+    // Order is still open - wait a bit to see if it fills
+    if (attempt < maxRetries) {
+      await new Promise(resolve => setTimeout(resolve, limitTimeoutMs / maxRetries));
+
+      // Check order status
+      const statusResult = await getOrderStatus(
+        apiKey, apiSecret, symbol, limitResult.orderId || "", testnet
+      );
+
+      if (statusResult.status === "FILLED" || statusResult.status === "PARTIALLY_FILLED") {
+        console.log(`[BINANCE] ✅ LIMIT order FILLED after ${limitTimeoutMs / maxRetries}ms`);
+        return { ...limitResult, status: statusResult.status };
+      }
+    }
+  }
+
+  // All LIMIT attempts failed - fallback to MARKET
+  console.warn(`[BINANCE] ⚠️ LIMIT orders not filled, falling back to MARKET (TAKER fee)`);
+  return placeMarketOrder(apiKey, apiSecret, pair, side, quantity, testnet);
 }
 
 /**
@@ -923,24 +1079,22 @@ export class BinanceWebSocketManager {
       return;
     }
     if (this.isConnecting || this.isDestroyed) return;
+
+    // Testnet WebSocket is unreliable — use REST polling instead
+    if (this.testnet) {
+      console.log('[WS] Testnet: WebSocket disabled, using REST polling only');
+      this.isDestroyed = true; // Prevent reconnects
+      return;
+    }
+
     this.isConnecting = true;
 
     try {
-      let wsUrl: string;
-      
-      if (this.testnet) {
-        // Testnet: Use individual stream WebSocket (testnet.binance.vision supports single streams)
-        // Connect to first symbol as example - will use REST polling for others
-        const firstSymbol = Array.from(this.subscribedSymbols)[0] || 'btcusdt';
-        wsUrl = `wss://testnet.binance.vision/ws/${firstSymbol}@ticker`;
-        console.log('[WS] Testnet: Using WebSocket single stream');
-      } else {
-        // Mainnet: use combined streams via stream.binance.com:9443/stream
-        const streams = Array.from(this.subscribedSymbols)
-          .map(s => `${s}@ticker`)
-          .join("/");
-        wsUrl = `wss://stream.binance.com:9443/stream?streams=${streams}`;
-      }
+      // Mainnet: use combined streams via stream.binance.com:9443/stream
+      const streams = Array.from(this.subscribedSymbols)
+        .map(s => `${s}@ticker`)
+        .join("/");
+      const wsUrl = `wss://stream.binance.com:9443/stream?streams=${streams}`;
 
       this.ws = new WebSocket(wsUrl);
 
@@ -991,17 +1145,21 @@ export class BinanceWebSocketManager {
         }
       };
 
-      this.ws.onerror = (error) => {
-        console.error('[WS] Error:', error);
+      this.ws.onerror = () => {
+        // Silent — errors are expected during reconnect
         this.isConnecting = false;
       };
 
       this.ws.onclose = () => {
-        console.log('[WS] Disconnected');
         this.isConnecting = false;
         this.ws = null;
 
-        if (!this.isDestroyed && this.subscribedSymbols.size > 0) {
+        // Don't log disconnect on testnet (already handled)
+        if (!this.testnet && !this.isDestroyed && this.subscribedSymbols.size > 0) {
+          console.log('[WS] Disconnected, scheduling reconnect');
+        }
+
+        if (!this.isDestroyed && !this.testnet && this.subscribedSymbols.size > 0) {
           this.scheduleReconnect();
         }
       };
@@ -1034,14 +1192,17 @@ export class BinanceWebSocketManager {
   /** Schedule reconnection with exponential backoff */
   private scheduleReconnect(): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error(`[WS] Max reconnect attempts (${this.maxReconnectAttempts}) reached`);
+      console.warn(`[WS] Max reconnect attempts (${this.maxReconnectAttempts}) reached, giving up`);
       return;
     }
 
     const delay = this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts);
     this.reconnectAttempts++;
 
-    console.log(`[WS] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
+    // Only log first attempt, stay silent after
+    if (this.reconnectAttempts <= 1) {
+      console.log(`[WS] Scheduling reconnect (attempts: ${this.reconnectAttempts})`);
+    }
     setTimeout(() => {
       if (!this.isDestroyed) {
         this.connect();

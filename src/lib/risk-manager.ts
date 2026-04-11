@@ -109,14 +109,14 @@ export class RiskManager {
       maxDrawdown: 15.0,
       maxTradesPerDay: 50,
       maxTradesPerHour: 15,
-      minConfidence: 0.45,
+      minConfidence: 0.25,
       minRiskReward: 0.5,
       maxSpreadPct: 0.15,
-      cooldownMinutes: 0.5,
+      cooldownMinutes: 0,  // No cooldown - allow consecutive trades
       kellyFraction: 0.25,
       trailingStopATR: 2,
       breakEvenATR: 1,
-      maxOpenPositions: 1,
+      maxOpenPositions: 5,  // Allow up to 5 simultaneous trades
       emergencyStopPct: 8.0,
       ...config,
     };

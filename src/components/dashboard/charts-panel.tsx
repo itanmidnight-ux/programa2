@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
 import { useTradingStore, type CandleData, type PairCandlesData } from "@/lib/trading-store";
+import { formatSymbolPrice } from "@/lib/format-utils";
 import { formatTime, cn } from "@/lib/utils";
 import { Loader2 } from "lucide-react";
 
@@ -43,7 +44,7 @@ export function ChartsPanel() {
 
   // Get current pair display name and price
   const currentPairData = pairPrices[selectedPair];
-  const pairDisplay = selectedPair.replace("USDT", "/USDT");
+  const pairDisplay = selectedPair.replace("_", "/");
   const pairPrice = currentPairData?.price || 0;
   const pairChange = currentPairData?.change24h || 0;
 

@@ -112,7 +112,16 @@ function buildDefaultSections(): SettingSection[] {
       title: "Trading Parameters",
       icon: <TrendingUp className="h-4 w-4 text-emerald-400" />,
       fields: [
-        { key: "symbol", label: "Trading Symbol", type: "select", value: "BTC/USDT", defaultValue: "BTC/USDT", options: [{ label: "BTC/USDT", value: "BTC/USDT" }, { label: "ETH/USDT", value: "ETH/USDT" }, { label: "SOL/USDT", value: "SOL/USDT" }, { label: "BNB/USDT", value: "BNB/USDT" }] },
+        { key: "symbol", label: "Trading Symbol", type: "select", value: "XAU_USD", defaultValue: "XAU_USD", options: [
+          { label: "XAU/USD (Gold)", value: "XAU_USD" },
+          { label: "XAG/USD (Silver)", value: "XAG_USD" },
+          { label: "EUR/USD", value: "EUR_USD" },
+          { label: "GBP/USD", value: "GBP_USD" },
+          { label: "USD/JPY", value: "USD_JPY" },
+          { label: "WTI/USD (Oil)", value: "WTI_USD" },
+          { label: "US30 (Dow Jones)", value: "US30_USD" },
+          { label: "NAS100 (NASDAQ)", value: "NAS100_USD" },
+        ]},
         { key: "timeframe", label: "Timeframe", type: "select", value: "5m", defaultValue: "5m", options: [{ label: "1m", value: "1m" }, { label: "5m", value: "5m" }, { label: "15m", value: "15m" }, { label: "1h", value: "1h" }] },
         { key: "loop_sleep", label: "Loop Sleep (seconds)", type: "number", value: 5, defaultValue: 5, hint: "Time between trading loop iterations" },
         { key: "history_limit", label: "History Limit", type: "number", value: 200, defaultValue: 200, hint: "Number of candles to fetch" },
@@ -217,12 +226,11 @@ export function SettingsPanel() {
   const [modeLoading, setModeLoading] = useState(false);
   const [showRealConfirm, setShowRealConfirm] = useState(false);
 
-  // Dual credential state
-  const [testnetKey, setTestnetKey] = useState("");
-  const [testnetSecret, setTestnetSecret] = useState("");
-  const [realKey, setRealKey] = useState("");
-  const [realSecret, setRealSecret] = useState("");
-  const [credStatus, setCredStatus] = useState<{ testnet: { configured: boolean; apiKeyPrefix: string | null }; real: { configured: boolean; apiKeyPrefix: string | null } } | null>(null);
+  // OANDA credential state
+  const [oandaAccountId, setOandaAccountId] = useState("");
+  const [oandaApiToken, setOandaApiToken] = useState("");
+  const [oandaIsDemo, setOandaIsDemo] = useState(true);
+  const [credStatus, setCredStatus] = useState<{ configured: boolean; accountIdPrefix: string | null; isDemo: boolean } | null>(null);
   const [validating, setValidating] = useState(false);
   const [savingCreds, setSavingCreds] = useState(false);
 
@@ -256,7 +264,7 @@ export function SettingsPanel() {
       const res = await fetch("/api/config/credentials");
       if (res.ok) {
         const data = await res.json();
-        setCredStatus({ testnet: data.testnet, real: data.real });
+        setCredStatus({ configured: data.configured, accountIdPrefix: data.accountIdPrefix, isDemo: data.isDemo });
       }
     } catch { /* silent */ }
   }, []);
@@ -299,12 +307,10 @@ export function SettingsPanel() {
     }
   };
 
-  /* ---- Save credentials for a mode ---- */
-  const handleSaveCredentials = async (mode: "testnet" | "real") => {
-    const key = mode === "testnet" ? testnetKey : realKey;
-    const secret = mode === "testnet" ? testnetSecret : realSecret;
-    if (!key.trim() || !secret.trim()) {
-      toast({ title: "Campos requeridos", description: "API Key y Secret son obligatorios", variant: "destructive" });
+  /* ---- Save OANDA credentials ---- */
+  const handleSaveOandaCredentials = async () => {
+    if (!oandaAccountId.trim() || !oandaApiToken.trim()) {
+      toast({ title: "Campos requeridos", description: "Account ID y API Token son obligatorios", variant: "destructive" });
       return;
     }
     setSavingCreds(true);
@@ -312,14 +318,17 @@ export function SettingsPanel() {
       const res = await fetch("/api/config/credentials", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode, apiKey: key.trim(), apiSecret: secret.trim() }),
+        body: JSON.stringify({
+          accountId: oandaAccountId.trim(),
+          apiToken: oandaApiToken.trim(),
+          isDemo: oandaIsDemo,
+        }),
       });
       if (res.ok) {
-        toast({ title: `Credenciales ${mode} guardadas`, description: "Puedes validarlas con el botón de verificar" });
+        toast({ title: "Credenciales OANDA guardadas", description: "Conexión configurada exitosamente" });
         loadCredentialStatus();
-        // Clear the input fields after saving
-        if (mode === "testnet") { setTestnetKey(""); setTestnetSecret(""); }
-        else { setRealKey(""); setRealSecret(""); }
+        setOandaAccountId("");
+        setOandaApiToken("");
       } else {
         toast({ title: "Error", description: "No se pudieron guardar las credenciales", variant: "destructive" });
       }
@@ -330,26 +339,27 @@ export function SettingsPanel() {
     }
   };
 
-  /* ---- Validate credentials ---- */
-  const handleValidateCredentials = async (mode: "testnet" | "real") => {
-    const key = mode === "testnet" ? testnetKey : realKey;
-    const secret = mode === "testnet" ? testnetSecret : realSecret;
+  /* ---- Validate OANDA credentials ---- */
+  const handleValidateOandaCredentials = async () => {
     setValidating(true);
     try {
-      const body: Record<string, string> = { mode };
-      if (key.trim()) body.apiKey = key.trim();
-      if (secret.trim()) body.apiSecret = secret.trim();
+      const body: Record<string, any> = { isDemo: oandaIsDemo };
+      if (oandaAccountId.trim()) body.accountId = oandaAccountId.trim();
+      if (oandaApiToken.trim()) body.apiToken = oandaApiToken.trim();
       const res = await fetch("/api/config/credentials", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       const data = await res.json();
-      if (data.valid) {
-        toast({ title: `Credenciales ${mode} válidas`, description: `Conexión exitosa a ${mode === "testnet" ? "testnet.binance.vision" : "api.binance.com"}` });
+      if (data.success) {
+        toast({
+          title: "Conexión OANDA exitosa",
+          description: data.message + (data.balance ? ` | Balance: $${data.balance.toFixed(2)}` : ""),
+        });
         loadCredentialStatus();
       } else {
-        toast({ title: `Credenciales ${mode} inválidas`, description: data.error || "Verifica tus API keys", variant: "destructive" });
+        toast({ title: "Credenciales inválidas", description: data.message || "Verifica tus credenciales", variant: "destructive" });
       }
     } catch {
       toast({ title: "Error", description: "Error de validación", variant: "destructive" });
@@ -783,122 +793,34 @@ export function SettingsPanel() {
         )}
       </motion.div>
 
-      {/* ---- Dual API Credentials ---- */}
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="glass-card rounded-xl p-5"
-      >
+      {/* ---- OANDA Credentials ---- */}
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="glass-card rounded-xl p-5">
         <div className="flex items-center gap-2 mb-4">
           <Key className="h-4 w-4 text-blue-400" />
-          <h3 className="text-sm font-semibold text-white">API Credentials</h3>
-          <p className="text-[10px] text-gray-500 ml-1">Cada modo tiene sus propias credenciales</p>
+          <h3 className="text-sm font-semibold text-white">OANDA Credentials</h3>
+          <p className="text-[10px] text-gray-500 ml-1">Conecta con Forex, Oro y Petróleo</p>
         </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Testnet Credentials */}
-          <div className={cn(
-            "rounded-lg border p-4 space-y-3",
-            accountMode === "testnet"
-              ? "border-emerald-500/30 bg-emerald-500/5"
-              : "border-white/[0.06] bg-white/[0.02]"
-          )}>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className={cn("h-4 w-4", accountMode === "testnet" ? "text-emerald-400" : "text-gray-500")} />
-                <span className="text-xs font-semibold text-white">Testnet Keys</span>
-              </div>
-              {credStatus?.testnet?.configured && (
-                <Badge variant="outline" className="text-[10px] text-emerald-400 border-emerald-500/40">
-                  {credStatus.testnet.apiKeyPrefix}✓
-                </Badge>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Input
-                type="password"
-                placeholder="Testnet API Key"
-                value={testnetKey}
-                onChange={(e) => setTestnetKey(e.target.value)}
-                className="bg-white/[0.04] border-white/[0.08] text-xs h-8 font-mono"
-              />
-              <Input
-                type="password"
-                placeholder="Testnet API Secret"
-                value={testnetSecret}
-                onChange={(e) => setTestnetSecret(e.target.value)}
-                className="bg-white/[0.04] border-white/[0.08] text-xs h-8 font-mono"
-              />
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => handleSaveCredentials("testnet")}
-                disabled={savingCreds || (!testnetKey && !testnetSecret)}
-                className="px-2.5 py-1 text-[10px] rounded-md bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 border border-emerald-500/30 disabled:opacity-40 transition-all"
-              >
-                {savingCreds ? <Loader2 className="h-3 w-3 animate-spin" /> : "Guardar"}
-              </button>
-              <button
-                onClick={() => handleValidateCredentials("testnet")}
-                disabled={validating}
-                className="px-2.5 py-1 text-[10px] rounded-md bg-white/[0.06] text-gray-400 hover:text-gray-200 border border-white/[0.08] disabled:opacity-40 transition-all"
-              >
-                {validating ? <Loader2 className="h-3 w-3 animate-spin" /> : "Validar"}
-              </button>
-            </div>
+        <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <Label className="text-xs text-gray-400">Cuenta Demo</Label>
+            <Switch checked={oandaIsDemo} onCheckedChange={setOandaIsDemo} />
           </div>
-
-          {/* Real Account Credentials */}
-          <div className={cn(
-            "rounded-lg border p-4 space-y-3",
-            accountMode === "real"
-              ? "border-red-500/30 bg-red-500/5"
-              : "border-white/[0.06] bg-white/[0.02]"
-          )}>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Database className={cn("h-4 w-4", accountMode === "real" ? "text-red-400" : "text-gray-500")} />
-                <span className="text-xs font-semibold text-white">Real Account Keys</span>
-              </div>
-              {credStatus?.real?.configured && (
-                <Badge variant="outline" className="text-[10px] text-red-400 border-red-500/40">
-                  {credStatus.real.apiKeyPrefix}✓
-                </Badge>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Input
-                type="password"
-                placeholder="Real Account API Key"
-                value={realKey}
-                onChange={(e) => setRealKey(e.target.value)}
-                className="bg-white/[0.04] border-white/[0.08] text-xs h-8 font-mono"
-              />
-              <Input
-                type="password"
-                placeholder="Real Account API Secret"
-                value={realSecret}
-                onChange={(e) => setRealSecret(e.target.value)}
-                className="bg-white/[0.04] border-white/[0.08] text-xs h-8 font-mono"
-              />
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => handleSaveCredentials("real")}
-                disabled={savingCreds || (!realKey && !realSecret)}
-                className="px-2.5 py-1 text-[10px] rounded-md bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/30 disabled:opacity-40 transition-all"
-              >
-                {savingCreds ? <Loader2 className="h-3 w-3 animate-spin" /> : "Guardar"}
-              </button>
-              <button
-                onClick={() => handleValidateCredentials("real")}
-                disabled={validating}
-                className="px-2.5 py-1 text-[10px] rounded-md bg-white/[0.06] text-gray-400 hover:text-gray-200 border border-white/[0.08] disabled:opacity-40 transition-all"
-              >
-                {validating ? <Loader2 className="h-3 w-3 animate-spin" /> : "Validar"}
-              </button>
-            </div>
+          <p className="text-[10px] text-gray-500 -mt-2">
+            {oandaIsDemo ? "Demo — Dinero ficticio" : "Live — DINERO REAL"}
+          </p>
+          <div className="space-y-2">
+            <Input type="text" placeholder="Account ID" value={oandaAccountId} onChange={(e) => setOandaAccountId(e.target.value)} className="bg-white/[0.04] border-white/[0.08] text-xs h-8 font-mono" />
+            <Input type="password" placeholder="API Token" value={oandaApiToken} onChange={(e) => setOandaApiToken(e.target.value)} className="bg-white/[0.04] border-white/[0.08] text-xs h-8 font-mono" />
           </div>
+          <div className="flex gap-2">
+            <button onClick={handleSaveOandaCredentials} disabled={savingCreds} className="px-2.5 py-1 text-[10px] rounded-md bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 border border-blue-500/30 disabled:opacity-40 transition-all">
+              {savingCreds ? <Loader2 className="h-3 w-3 animate-spin" /> : "Guardar"}
+            </button>
+            <button onClick={handleValidateOandaCredentials} disabled={validating} className="px-2.5 py-1 text-[10px] rounded-md bg-white/[0.06] text-gray-400 hover:text-gray-200 border border-white/[0.08] disabled:opacity-40 transition-all">
+              {validating ? <Loader2 className="h-3 w-3 animate-spin" /> : "Validar"}
+            </button>
+          </div>
+          {credStatus?.configured && <p className="text-[10px] text-emerald-400 mt-2">✓ Conectado: {credStatus.accountIdPrefix}...</p>}
         </div>
       </motion.div>
 

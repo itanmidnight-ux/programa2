@@ -298,3 +298,131 @@ model BacktestResult {
   results   String   @default("{}")  // JSON backtest results
   createdAt DateTime @default(now())
 }
+
+// ============================================
+// AI Trading System Models
+// ============================================
+
+// ---------- AI Model Registry ----------
+model AIModel {
+  id                String   @id @default(cuid())
+  name              String   // ej: "BTC_1m_v1"
+  pair              String   // BTC, ETH, EUR, etc
+  timeframe         String   // 1m, 5m, 15m, 1h, 4h
+  version           Int      @default(1)
+
+  // Modelo
+  modelPath         String   // Path al archivo guardado
+  modelType         String   @default("neural_network") // tipo de modelo
+  modelSize         Float    @default(0) // MB
+
+  // Entrenamiento
+  trainingDataSize  Int      @default(0) // Candles usados
+  trainingAccuracy  Float    @default(0) // Accuracy en training set
+  validationAccuracy Float   @default(0) // Accuracy en validation set
+  testAccuracy      Float    @default(0) // Accuracy en test set
+
+  // Performance
+  winRate           Float    @default(0)  // % de trades ganadores
+  profitFactor      Float    @default(0)  // Ganancias/Pérdidas
+  maxDrawdown       Float    @default(0)  // Drawdown máximo
+  sharpeRatio       Float    @default(0)
+  expectedReturn    Float    @default(0)  // Retorno esperado %
+
+  // Features
+  featureCount      Int      @default(20)
+  featureNames      String   @default("[]") // JSON array
+
+  // Status
+  status            String   @default("TRAINING") // TRAINING, VALIDATING, ACTIVE, ARCHIVED
+  isActive          Boolean  @default(false)
+  isBacktested      Boolean  @default(false)
+
+  createdAt         DateTime @default(now())
+  trainedAt         DateTime?
+  testedAt          DateTime?
+  deployedAt        DateTime?
+  updatedAt         DateTime @updatedAt
+
+  // Predicciones generadas
+  predictions       AIPrediction[]
+}
+
+// ---------- AI Predictions ----------
+model AIPrediction {
+  id                String    @id @default(cuid())
+  modelId           String
+  model             AIModel   @relation(fields: [modelId], references: [id])
+
+  pair              String
+  timeframe         String
+  candleTime        DateTime
+
+  prediction        String    // BUY, SELL, HOLD
+  confidence        Float     @default(0) // 0-1
+  probabilityBuy    Float     @default(0)
+  probabilitySell   Float     @default(0)
+  probabilityHold   Float     @default(0)
+  expectedReturn    Float     @default(0)
+
+  // Features usados
+  features          String    @default("[]") // JSON
+
+  // Resultado real
+  actualResult      String?   // UP, DOWN, FLAT (después)
+  isCorrect         Boolean?  // Se llena después
+  actualReturn      Float?    // Retorno real
+
+  createdAt         DateTime  @default(now())
+  resolvedAt        DateTime?
+}
+
+// ---------- Strategy Validation ----------
+model StrategyValidation {
+  id                String    @id @default(cuid())
+  name              String    // Nombre de estrategia
+  pair              String
+  timeframe         String
+  modelId           String?   // ID del modelo IA
+
+  // Backtest results
+  backtestStartDate DateTime
+  backtestEndDate   DateTime
+  backtestCandles   Int       @default(0)
+
+  backtestTrades    Int       @default(0)
+  backtestWins      Int       @default(0)
+  backtestLosses    Int       @default(0)
+  backtestWinRate   Float     @default(0)
+  backtestProfit    Float     @default(0)
+  backtestDrawdown  Float     @default(0)
+  backtestSharpe    Float     @default(0)
+
+  // Status
+  isValidated       Boolean   @default(false)
+  passedValidation  Boolean   @default(false)
+  validationNotes   String    @default("")
+
+  // Deployment
+  isDeployed        Boolean   @default(false)
+  deployedAt        DateTime?
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+}
+
+// ---------- AI Training Logs ----------
+model AITrainingLog {
+  id                String    @id @default(cuid())
+  modelId           String
+  pair              String
+  timeframe         String
+
+  epoch             Int       @default(0)
+  loss              Float     @default(0)
+  accuracy          Float     @default(0)
+  validationLoss    Float     @default(0)
+  validationAccuracy Float    @default(0)
+
+  createdAt         DateTime  @default(now())
+}

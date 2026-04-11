@@ -1,148 +1,126 @@
 // ============================================
-// /api/config/credentials - Manage Dual API Keys
+// RECO-TRADING - OANDA Credentials API
 // ============================================
-// GET  /api/config/credentials  - Get credential status (NO secrets exposed)
-// PUT  /api/config/credentials  - Update credentials for a mode
-// POST /api/config/credentials/validate - Validate credentials for a mode
+// GET  /api/config/credentials  - Get credential status
+// PUT  /api/config/credentials  - Save credentials
+// POST /api/config/credentials  - Validate credentials
 // ============================================
 
 import { NextResponse } from "next/server";
-import { 
-  getCredentialsForMode, 
-  setCredentials, 
-  validateCredentials, 
-  hasCredentials,
-  isTestnetMode 
-} from "@/lib/binance";
-import { setSetting, getSetting } from "@/lib/settings-manager";
-import { encryptCredential, decryptCredential } from "@/lib/security";
+import {
+  getOandaCredentials,
+  hasOandaCredentials,
+  setOandaCredentials,
+  saveOandaCredentials,
+  loadOandaCredentials,
+  validateOandaCredentials,
+  getOandaCredentialStatus,
+} from "@/lib/oanda-credentials";
 
-// ---- GET: Return credential status (without exposing secrets) ----
+// ============================================
+// GET - Return credential status (NO secrets)
+// ============================================
+
 export async function GET() {
   try {
-    const testnetCreds = getCredentialsForMode(true);
-    const realCreds = getCredentialsForMode(false);
-    const currentTestnet = isTestnetMode();
+    // Try to load from DB first
+    await loadOandaCredentials();
+
+    const status = getOandaCredentialStatus();
 
     return NextResponse.json({
-      currentMode: currentTestnet ? "testnet" : "real",
-      testnet: {
-        configured: hasCredentials(true),
-      },
-      real: {
-        configured: hasCredentials(false),
-      },
+      broker: "OANDA",
+      configured: status.configured,
+      accountIdPrefix: status.accountIdPrefix,
+      isDemo: status.isDemo,
     });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message, configured: false },
+      { status: 500 }
+    );
   }
 }
 
-// ---- PUT: Update credentials for a specific mode ----
+// ============================================
+// PUT - Save credentials
+// ============================================
+
 export async function PUT(request: Request) {
   try {
     const body = await request.json();
-    const { mode, apiKey, apiSecret } = body;
+    const { accountId, apiToken, isDemo } = body;
 
-    if (!["testnet", "real"].includes(mode)) {
+    if (!accountId || !apiToken) {
       return NextResponse.json(
-        { error: "mode must be 'testnet' or 'real'" },
+        { success: false, message: "Account ID and API Token are required" },
         { status: 400 }
       );
     }
 
-    if (!apiKey || typeof apiKey !== "string") {
-      return NextResponse.json(
-        { error: "apiKey is required" },
-        { status: 400 }
-      );
-    }
+    // Sanitize inputs
+    const trimmedAccountId = accountId.trim();
+    const trimmedApiToken = apiToken.trim();
+    const demoMode = isDemo !== false; // Default to demo
 
-    if (!apiSecret || typeof apiSecret !== "string") {
-      return NextResponse.json(
-        { error: "apiSecret is required" },
-        { status: 400 }
-      );
-    }
+    // Store in memory
+    setOandaCredentials(trimmedAccountId, trimmedApiToken, demoMode);
 
-    const isTestnet = mode === "testnet";
-    const trimmedKey = apiKey.trim();
-    const trimmedSecret = apiSecret.trim();
-    
-    // Set the credentials in memory
-    setCredentials(isTestnet, trimmedKey, trimmedSecret);
-
-    // ENCRYPT and save to database for persistence across restarts
-    const keyName = isTestnet ? 'testnet_api_key' : 'real_api_key';
-    const secretName = isTestnet ? 'testnet_api_secret' : 'real_api_secret';
-    
-    const encryptedKey = encryptCredential(trimmedKey);
-    const encryptedSecret = encryptCredential(trimmedSecret);
-    
-    await setSetting(keyName, encryptedKey, 'api');
-    await setSetting(secretName, encryptedSecret, 'api');
-    
-    console.log(`[CREDENTIALS] Saved ENCRYPTED ${mode} API keys to database`);
+    // Encrypt and save to DB
+    const result = await saveOandaCredentials();
 
     return NextResponse.json({
-      success: true,
-      mode,
-      message: `API credentials updated for ${mode} mode`,
+      success: result.success,
+      message: result.message,
+      broker: "OANDA",
+      accountIdPrefix: trimmedAccountId.slice(0, 6),
+      isDemo: demoMode,
     });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: error.message },
+      { status: 500 }
+    );
   }
 }
 
-// ---- POST: Validate credentials for a specific mode ----
+// ============================================
+// POST - Validate credentials
+// ============================================
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { mode, apiKey, apiSecret } = body;
+    const { accountId, apiToken, isDemo } = body;
 
-    if (!["testnet", "real"].includes(mode)) {
-      return NextResponse.json(
-        { error: "mode must be 'testnet' or 'real'" },
-        { status: 400 }
-      );
-    }
-
-    const isTestnet = mode === "testnet";
-    
     // Use provided credentials or fall back to stored ones
-    const key = apiKey || getCredentialsForMode(isTestnet).apiKey;
-    const secret = apiSecret || getCredentialsForMode(isTestnet).apiSecret;
+    const currentCreds = getOandaCredentials();
+    const testAccountId = accountId || currentCreds.accountId;
+    const testApiToken = apiToken || currentCreds.apiToken;
+    const testIsDemo = isDemo !== undefined ? isDemo : currentCreds.isDemo;
 
-    if (!key || !secret) {
-      return NextResponse.json({
-        valid: false,
-        error: `No credentials available for ${mode} mode. Please enter your API key and secret.`,
-      });
-    }
+    const result = await validateOandaCredentials(
+      testAccountId,
+      testApiToken,
+      testIsDemo
+    );
 
-    const result = await validateCredentials(key, secret, isTestnet);
-
-    // If valid and new credentials were provided, encrypt and save them
-    if (result.valid && apiKey && apiSecret) {
-      setCredentials(isTestnet, apiKey.trim(), apiSecret.trim());
-      
-      // Also encrypt and save to database
-      const keyName = isTestnet ? 'testnet_api_key' : 'real_api_key';
-      const secretName = isTestnet ? 'testnet_api_secret' : 'real_api_secret';
-      await setSetting(keyName, encryptCredential(apiKey.trim()), 'api');
-      await setSetting(secretName, encryptCredential(apiSecret.trim()), 'api');
-      
-      console.log(`[CREDENTIALS] Validated and saved ENCRYPTED ${mode} credentials`);
+    // If valid and new credentials were provided, save them
+    if (result.valid && accountId && apiToken) {
+      setOandaCredentials(testAccountId, testApiToken, testIsDemo);
+      await saveOandaCredentials();
     }
 
     return NextResponse.json({
-      ...result,
-      mode,
-      message: result.valid 
-        ? `Credentials valid for ${mode} mode` 
-        : `Invalid credentials for ${mode}: ${result.error}`,
+      success: result.valid,
+      message: result.message,
+      balance: result.balance,
+      broker: "OANDA",
     });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: error.message },
+      { status: 500 }
+    );
   }
 }

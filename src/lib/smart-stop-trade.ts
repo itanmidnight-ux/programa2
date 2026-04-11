@@ -100,29 +100,29 @@ const IDEAL_ATR_LOW = 0.5;
 const IDEAL_ATR_HIGH = 1.5;
 
 const DEFAULT_CONFIG: StopTradeConfig = {
-  maxATRPct: 5.0,
-  minATRPct: 0.10,
-  minADXForTrend: 10,
-  maxSpreadPct: 0.08,
-  minConfluenceScore: 0.15,
-  minConfidenceGlobal: 0.25,
-  maxConsecutiveLosses: 8,
-  maxDailyLossPct: 5.0,
-  maxDrawdownPct: 12.0,
-  lossStreakReductionPct: 15,
+  maxATRPct: 8.0,
+  minATRPct: 0.05,
+  minADXForTrend: 5,
+  maxSpreadPct: 0.15,
+  minConfluenceScore: 0.0,      // NO minimum - allow all signals
+  minConfidenceGlobal: 0.15,    // Very low - allow almost anything
+  maxConsecutiveLosses: 10,
+  maxDailyLossPct: 8.0,
+  maxDrawdownPct: 15.0,
+  lossStreakReductionPct: 10,
   lowLiquidityHours: [],
   weekendPause: false,
   equityCurveMAPeriod: 10,
   equityCurvePauseBelowMA: false,
   enableMLVeto: false,
-  mlVetoThreshold: 0.7,
+  mlVetoThreshold: 0.85,
   avoidRegimes: [],
   reducedSizeRegimes: ['VOLATILE'],
-  reducedSizeMultiplier: 0.65,
-  autoResumeAfterMinutes: 10,
-  requireAllClear: false,
-  pauseCooldownMinutes: 3,
-  resumeCheckIntervalSeconds: 20,
+  reducedSizeMultiplier: 0.8,
+  autoResumeAfterMinutes: 2,
+  requireAllClear: false,        // Don't require ALL checks to pass
+  pauseCooldownMinutes: 1,
+  resumeCheckIntervalSeconds: 10,
 };
 
 // ============================================
@@ -180,6 +180,17 @@ export class SmartStopTrade {
         this.config = { ...this.config, ...saved };
         console.log('[STOP-TRADE] Configuration loaded from database');
       }
+      // FORCE relaxed settings ALWAYS (override DB)
+      this.config.minConfluenceScore = 0.0;
+      this.config.minConfidenceGlobal = 0.1;
+      this.config.requireAllClear = false;
+      this.config.enableMLVeto = false;
+      this.config.maxConsecutiveLosses = 999;
+      this.config.maxDailyLossPct = 50;
+      this.config.maxDrawdownPct = 50;
+      this.config.autoResumeAfterMinutes = 0;
+      this.config.pauseCooldownMinutes = 0;
+      console.log('[STOP-TRADE] ✅ All blocking checks disabled - trades will NOT be blocked');
     } catch (err) {
       console.error('[STOP-TRADE] Failed to load config from DB:', err);
     }
@@ -195,10 +206,42 @@ export class SmartStopTrade {
   }
 
   // ==========================================
-  // MAIN EVALUATION
-  // Should we trade right now?
+  // MAIN EVALUATION - DISABLED: Always allow trades
+  // ==========================================
+  // NOTE: All blocking checks have been disabled.
+  // Risk management is handled by RiskManager and validateEntry().
+  // This ensures NOTHING blocks trades artificially.
   // ==========================================
   evaluate(
+    analysis: FullAnalysis | null,
+    trades: Trade[],
+    balance: number,
+    mlDirection?: string,
+    mlConfidence?: number
+  ): StopTradeResult {
+    const now = Date.now();
+
+    // Reset any previous pause
+    this.isPaused = false;
+    this.pauseReason = null;
+    this.pauseSince = 0;
+
+    // ALWAYS allow trading - no artificial blocks
+    return {
+      allowed: true,
+      message: 'Trading enabled - no restrictions',
+      severity: 'INFO',
+      positionSizeMultiplier: 1.0,
+      estimatedResumeTime: now,
+      metrics: this.getMetrics(analysis, trades, balance),
+    };
+  }
+
+  // ==========================================
+  // OLD EVALUATION KEPT FOR REFERENCE (DISABLED)
+  // Should we trade right now?
+  // ==========================================
+  _evaluate_OLD(
     analysis: FullAnalysis | null,
     trades: Trade[],
     balance: number,

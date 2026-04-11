@@ -1,30 +1,29 @@
 import { NextResponse } from "next/server";
-import { getTickerPrice, get24hTicker, getKlines, getOrderBook, getAccountBalance, getPositions, formatPair, isTestnetMode, getCurrentCredentials, hasCredentials } from "@/lib/binance";
+import {
+  getTickerPrice,
+  getKlines,
+  getOrderBook,
+  getAccountBalance,
+  getActiveSymbol,
+  isBrokerConnected,
+  getBrokerName,
+} from "@/lib/broker-manager";
+import { formatPair, getSymbolDisplayName } from "@/lib/format-utils";
 import { analyzeSignals } from "@/lib/signal-engine";
 import { predict } from "@/lib/ml-predictor";
 import { computeCapitalState, type CapitalMode } from "@/lib/capital-manager";
 import { automation } from "@/lib/automation";
 import { db } from "@/lib/db";
-import { multiPairManager } from "@/lib/multi-pair-manager";
 
 export async function GET(request: Request) {
   const startTime = Date.now();
   try {
     const { searchParams } = new URL(request.url);
     const pairParam = searchParams.get("pair");
-    const { apiKey, apiSecret } = getCurrentCredentials();
-    const pair = pairParam || process.env.TRADING_PAIR || "BTC/USDT";
-    const pairClean = pair.replace("/", "");
-    const testnet = isTestnetMode();
+    const pair = pairParam || process.env.TRADING_SYMBOL || "XAU_USD";
+    const brokerConnected = isBrokerConnected();
 
-    // Only update multi-pair manager if the pair actually changed (prevents log spam)
-    if (pairParam && pairParam !== multiPairManager.getActivePair()?.symbol) {
-      multiPairManager.setActivePair(pairParam);
-    }
-
-    const useRealData = hasCredentials(testnet);
-
-    // ---- Fetch PUBLIC market data (works without API keys) ----
+    // ---- Fetch market data via Broker Manager ----
     let price = 0;
     let ticker24h: any = { priceChangePercent: "0", quoteVolume: "0" };
     let klines5m: any[] = [];
@@ -34,31 +33,36 @@ export async function GET(request: Request) {
     let publicDataFailed = false;
 
     try {
-      const [p, t24h, k5m, k15m, k1h, ob] = await Promise.all([
-        getTickerPrice(pairClean, testnet),
-        get24hTicker(pairClean, testnet).catch(() => ({ priceChangePercent: "0", quoteVolume: "0" })),
-        getKlines(pairClean, "5m", 200, testnet),
-        getKlines(pairClean, "15m", 200, testnet).catch(() => [] as any[]),
-        getKlines(pairClean, "1h", 200, testnet).catch(() => [] as any[]),
-        getOrderBook(pairClean, 10, testnet).catch(() => ({ bids: [], asks: [], spread: 0 })),
+      // Get price
+      price = await getTickerPrice(pair);
+      
+      // Get klines in parallel
+      [klines5m, klines15m, klines1h] = await Promise.all([
+        getKlines(pair, "5m", 200),
+        getKlines(pair, "15m", 200).catch(() => []),
+        getKlines(pair, "1h", 200).catch(() => []),
       ]);
-      price = p;
-      ticker24h = t24h;
-      klines5m = k5m;
-      klines15m = k15m;
-      klines1h = k1h;
-      orderBook = ob;
+
+      // Get order book
+      orderBook = await getOrderBook(pair, 10).catch(() => ({ bids: [], asks: [], spread: 0 }));
+
+      // Calculate 24h change from klines if available
+      if (klines5m.length > 0) {
+        const firstPrice = klines5m[0]?.open || price;
+        const changePct = price > 0 && firstPrice > 0 ? ((price - firstPrice) / firstPrice) * 100 : 0;
+        ticker24h = { priceChangePercent: changePct.toFixed(2), quoteVolume: "0" };
+      }
     } catch (err) {
-      console.error("[SNAPSHOT] Public data fetch failed:", err);
+      console.error("[SNAPSHOT] Market data fetch failed:", err);
       publicDataFailed = true;
     }
 
-    // If public data completely failed, return OFFLINE snapshot with zeros
+    // If market data completely failed, return OFFLINE snapshot
     if (publicDataFailed || price === 0) {
       return NextResponse.json({
         mode: "OFFLINE",
         status: "OFFLINE",
-        pair: formatPair(pairClean),
+        pair: formatPair(pair),
         price: 0,
         signal: "HOLD",
         confidence: 0,
@@ -129,11 +133,11 @@ export async function GET(request: Request) {
     }
 
     // ---- If no API credentials, return real price data with zero balance ----
-    if (!useRealData) {
+    if (!brokerConnected) {
       return NextResponse.json({
         mode: "NO_AUTH",
         status: "CONNECTED",
-        pair: formatPair(pairClean),
+        pair: formatPair(pair),
         price: +price.toFixed(2),
         signal: signal.signal,
         confidence: signal.confidence,
@@ -194,7 +198,7 @@ export async function GET(request: Request) {
         exit_intelligence_score: signal.confidence * 0.9,
         smart_stop: { phase: 0, phaseName: "No Trailing", trailingActive: false, breakEvenActive: false, timeOpen: 0, nextProfitLock: null },
         smart_stop_trade: { isPaused: false, pauseReason: null, overallScore: 50, volatilityScore: 50, signalQualityScore: 50, performanceScore: 50, positionSizeMultiplier: 1 },
-        notice: "Public market data loaded. Configure Binance API keys in .env for account data.",
+        notice: "Public market data loaded. Configure OANDA API keys in .env for account data.",
       });
     }
 
@@ -204,7 +208,7 @@ export async function GET(request: Request) {
     let positions: any[] = [];
     try {
       const [accountResult, positionResult] = await Promise.all([
-        getAccountBalance(apiKey, apiSecret, testnet).catch(err => {
+        getAccountBalance().catch(err => {
           console.error("[SNAPSHOT] Failed to fetch account data:", err instanceof Error ? err.message : err);
           return null;
         }),
@@ -221,7 +225,7 @@ export async function GET(request: Request) {
       ? accountData.balances?.find((b: { asset: string }) => b.asset === "USDT")
       : null;
     const btcBalance = accountData
-      ? accountData.balances?.find((b: { asset: string }) => b.asset === pairClean.replace("USDT", ""))
+      ? accountData.balances?.find((b: { asset: string }) => b.asset === pair.replace("USDT", ""))
       : null;
     const balance = usdtBalance ? parseFloat(usdtBalance.free) + parseFloat(usdtBalance.locked) : 0;
     const cryptoQty = btcBalance ? parseFloat(btcBalance.free) + parseFloat(btcBalance.locked) : 0;
@@ -240,8 +244,9 @@ export async function GET(request: Request) {
     const posSL = openPosition ? parseFloat(openPosition.stopLoss) : 0;
     const posTP = openPosition ? parseFloat(openPosition.takeProfit) : 0;
 
-    // Fetch trade stats from database
+    // Fetch trade stats from database - include BOTH open and closed trades
     let closedTrades: any[] = [];
+    let openTrades: any[] = [];
     let wins = 0;
     let losses = 0;
     let avgWin = 0;
@@ -252,9 +257,18 @@ export async function GET(request: Request) {
     let tradesToday = 0;
     let bestTrade = 0;
     let worstTrade = 0;
+    let totalPnl = 0;
+    let sessionPnl = 0;
+    let openPnl = 0;
+    let closedPnl = 0;
 
     try {
+      // Get CLOSED trades for win/loss stats
       closedTrades = await db.trade.findMany({ where: { status: "CLOSED" } });
+      // Get OPEN trades for current PnL
+      openTrades = await db.trade.findMany({ where: { status: "OPEN" } });
+
+      // Stats from CLOSED trades
       totalTrades = closedTrades.length;
       wins = closedTrades.filter((t) => t.pnl > 0).length;
       losses = closedTrades.filter((t) => t.pnl <= 0).length;
@@ -269,14 +283,20 @@ export async function GET(request: Request) {
         profitFactor = (avgWin * wins) / (avgLoss * losses);
       }
 
-      const totalPnl = closedTrades.reduce((s, t) => s + t.pnl, 0);
-      expectancy = totalTrades > 0 ? totalPnl / totalTrades : 0;
+      // PnL from closed trades
+      closedPnl = closedTrades.reduce((s, t) => s + (t.pnl || 0), 0);
+      // PLUS unrealized PnL from open trades
+      openPnl = openTrades.reduce((s, t) => s + (t.pnl || 0), 0);
+      totalPnl = closedPnl + openPnl;
+      sessionPnl = totalPnl; // Session = closed + open
+
+      expectancy = totalTrades > 0 ? closedPnl / totalTrades : 0;
 
       const pnls = closedTrades.map(t => t.pnl);
       bestTrade = pnls.length > 0 ? Math.max(...pnls) : 0;
       worstTrade = pnls.length > 0 ? Math.min(...pnls) : 0;
 
-      // Count trades today
+      // Count trades today (open + closed)
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const todayTrades = await db.trade.findMany({ where: { openedAt: { gte: today } } });
@@ -367,40 +387,37 @@ export async function GET(request: Request) {
       }
     } catch { /* smart stop trade not available */ }
 
-    // Add pair prices for the dropdown (DIRECT - no self-referential HTTP)
+    // Add pair prices for the dropdown (OANDA markets)
     const pairPricesData: Record<string, any> = {};
-    try {
-      const summary = multiPairManager.getSummary();
-      for (const p of summary.pairs) {
-        pairPricesData[p.symbol] = {
-          symbol: p.symbol,
-          display: p.display,
-          price: p.price || 0,
-          change24h: p.change24h || 0,
-          high24h: p.high24h || 0,
-          low24h: p.low24h || 0,
-          volume24h: p.volume24h || 0,
-          active: p.active,
-          lastUpdate: p.lastUpdate || 0,
-        };
-      }
-    } catch { /* pairs not available */ }
+    const oandaMarkets = ["XAU_USD", "XAG_USD", "EUR_USD", "GBP_USD", "USD_JPY", "WTI_USD", "US30_USD", "NAS100_USD"];
+    for (const sym of oandaMarkets) {
+      pairPricesData[sym] = {
+        symbol: sym,
+        display: formatPair(sym),
+        price: sym === pair ? price : 0,
+        change24h: sym === pair ? parseFloat(ticker24h.priceChangePercent || "0") : 0,
+        high24h: 0, low24h: 0, volume24h: 0,
+        active: sym === pair,
+        lastUpdate: Date.now(),
+      };
+    }
 
     const apiLatency = Date.now() - startTime;
 
     return NextResponse.json({
       mode: "LIVE",
       status: isRunning,
-      pair: formatPair(pairClean),
+      pair: formatPair(pair),
       price: +price.toFixed(2),
       signal: signal.signal,
       confidence: signal.confidence,
       balance: +balance.toFixed(2),
       equity: +equity.toFixed(2),
       total_equity: +equity.toFixed(2),
-      daily_pnl: +engineMetrics.dailyPnl.toFixed(2),
-      session_pnl: +unrealizedPnl.toFixed(2),
-      unrealized_pnl: +unrealizedPnl.toFixed(2),
+      daily_pnl: +totalPnl.toFixed(2),
+      session_pnl: +sessionPnl.toFixed(2),
+      unrealized_pnl: +openPnl.toFixed(2),
+      closed_pnl: +closedPnl.toFixed(2),
       win_rate: +winRate.toFixed(1),
       total_trades: totalTrades,
       wins,
@@ -410,14 +427,17 @@ export async function GET(request: Request) {
       avg_loss: +avgLoss.toFixed(2),
       profit_factor: +profitFactor.toFixed(2),
       expectancy: +expectancy.toFixed(2),
-      has_open_position: hasOpen,
-      open_positions: hasOpen ? [{
-        id: 1, side: posSide || "LONG", entry: +posEntry.toFixed(2),
-        size: +posQty.toFixed(4),
-        sl: +(posSL || 0).toFixed(2),
-        tp: +(posTP || 0).toFixed(2),
-        pnl: +unrealizedPnl.toFixed(2), time: Math.floor(Date.now() / 1000),
-      }] : [],
+      has_open_position: hasOpen || openTrades.length > 0,
+      open_position_count: openTrades.length,
+      open_positions: openTrades.map((t: any, i: number) => ({
+        id: t.id, side: t.side, entry: +t.entryPrice.toFixed(2),
+        size: +t.quantity.toFixed(6),
+        sl: +(t.stopLoss || 0).toFixed(2),
+        tp: +(t.takeProfit || 0).toFixed(2),
+        pnl: +(t.pnl || 0).toFixed(2),
+        pnlPct: +(t.pnlPercent || 0).toFixed(2),
+        time: Math.floor(new Date(t.openedAt).getTime() / 1000),
+      })),
       open_position_side: posSide,
       open_position_entry: +posEntry.toFixed(2),
       open_position_qty: +posQty.toFixed(4),

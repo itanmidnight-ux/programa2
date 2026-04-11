@@ -40,10 +40,14 @@ export interface FullAnalysis {
 
   rsi: number;
   rsiZone: 'OVERBOUGHT' | 'HIGH' | 'NEUTRAL' | 'LOW' | 'OVERSOLD';
+  stochRsi: { k: number; d: number; zone: 'OVERBOUGHT' | 'NEUTRAL' | 'OVERSOLD' };
   macd: { macd: number; signal: number; histogram: number; crossover: 'BULLISH' | 'BEARISH' | null };
   stochastic: { k: number; d: number; zone: 'OVERBOUGHT' | 'NEUTRAL' | 'OVERSOLD' };
   cci: number;
   roc: number;
+
+  emaCrossFast: { crossover: 'BULLISH' | 'BEARISH' | 'NEUTRAL'; distancePct: number; emaFast: number; emaSlow: number };
+  parabolicSAR: number;
 
   atr: number;
   atrPct: number;
@@ -121,6 +125,39 @@ function ema(data: number[], period: number): number[] {
     result.push(prev);
   }
   return result;
+}
+
+/** EMA Crossover - Fast detection for scalping signals */
+function emaCrossFast(closes: number[], fastPeriod = 5, slowPeriod = 13): {
+  crossover: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  emaFast: number;
+  emaSlow: number;
+  distance: number;
+  distancePct: number;
+} {
+  if (closes.length < slowPeriod + 2) {
+    return { crossover: 'NEUTRAL', emaFast: closes[closes.length - 1] || 0, emaSlow: closes[closes.length - 1] || 0, distance: 0, distancePct: 0 };
+  }
+
+  const emaFastArr = ema(closes, fastPeriod);
+  const emaSlowArr = ema(closes, slowPeriod);
+
+  const currentFast = emaFastArr[emaFastArr.length - 1];
+  const currentSlow = emaSlowArr[emaSlowArr.length - 1];
+  const prevFast = emaFastArr[emaFastArr.length - 2];
+  const prevSlow = emaSlowArr[emaSlowArr.length - 2];
+
+  const distance = currentFast - currentSlow;
+  const distancePct = currentSlow > 0 ? (distance / currentSlow) * 100 : 0;
+
+  let crossover: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
+  if (prevFast <= prevSlow && currentFast > currentSlow) {
+    crossover = 'BULLISH';
+  } else if (prevFast >= prevSlow && currentFast < currentSlow) {
+    crossover = 'BEARISH';
+  }
+
+  return { crossover, emaFast: currentFast, emaSlow: currentSlow, distance, distancePct };
 }
 
 /** Weighted Moving Average */
@@ -1194,6 +1231,15 @@ export function analyzeMarket(
   const stochK = stoch.k[stoch.k.length - 1];
   const stochD = stoch.d[stoch.d.length - 1];
 
+  const stochRsi = calcStochRSI(closes);
+  const stochRsiK = stochRsi.k[stochRsi.k.length - 1];
+  const stochRsiD = stochRsi.d[stochRsi.d.length - 1];
+
+  const emaCrossFastResult = emaCrossFast(closes);
+
+  const parabolicSARValues = calcParabolicSAR(candles5m);
+  const lastParabolicSAR = parabolicSARValues[parabolicSARValues.length - 1];
+
   const macdData = calcMACD(closes);
   const lastMacd = macdData.macd[macdData.macd.length - 1];
   const lastSignal = macdData.signal[macdData.signal.length - 1];
@@ -1398,6 +1444,18 @@ export function analyzeMarket(
       d: +stochD.toFixed(1),
       zone: stochK > 80 ? 'OVERBOUGHT' : stochK < 20 ? 'OVERSOLD' : 'NEUTRAL',
     },
+    stochRsi: {
+      k: +stochRsiK.toFixed(1),
+      d: +stochRsiD.toFixed(1),
+      zone: stochRsiK > 80 ? 'OVERBOUGHT' : stochRsiK < 20 ? 'OVERSOLD' : 'NEUTRAL',
+    },
+    emaCrossFast: {
+      crossover: emaCrossFastResult.crossover,
+      distancePct: +emaCrossFastResult.distancePct.toFixed(3),
+      emaFast: +emaCrossFastResult.emaFast.toFixed(2),
+      emaSlow: +emaCrossFastResult.emaSlow.toFixed(2),
+    },
+    parabolicSAR: +lastParabolicSAR.toFixed(2),
     cci: +cciVal.toFixed(1),
     roc: +rocVal.toFixed(2),
     atr: +atrVal.toFixed(2),
@@ -1459,8 +1517,11 @@ function createEmptyAnalysis(price: number): FullAnalysis {
     adx: 0, adxTrend: 'RANGING',
     supertrend: { direction: 'UP', value: price },
     rsi: 50, rsiZone: 'NEUTRAL',
+    stochRsi: { k: 50, d: 50, zone: 'NEUTRAL' },
     macd: { macd: 0, signal: 0, histogram: 0, crossover: null },
     stochastic: { k: 50, d: 50, zone: 'NEUTRAL' },
+    emaCrossFast: { crossover: 'NEUTRAL', distancePct: 0, emaFast: price, emaSlow: price },
+    parabolicSAR: price,
     cci: 0, roc: 0,
     atr: 0, atrPct: 0,
     bollingerBands: { upper: price, middle: price, lower: price, percentB: 0.5, bandwidth: 0, squeeze: false },

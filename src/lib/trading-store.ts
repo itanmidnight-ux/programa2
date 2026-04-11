@@ -266,7 +266,7 @@ const defaultMLData: MLDataState = {
 
 const defaultSnapshot: Snapshot = {
   status: "CONNECTING",
-  pair: "BTC/USDT",
+  pair: "XAU/USD",
   price: 0,
   signal: "HOLD",
   confidence: 0,
@@ -417,7 +417,7 @@ interface TradingStore {
   marketAnalysis: any | null;
 
   // ---- MULTI-PAIR STATE ----
-  selectedPair: string;           // Currently selected pair for display (e.g. "BTCUSDT")
+  selectedPair: string;           // Currently selected pair for display (e.g. "XAU_USD")
   pairPrices: Record<string, PairData>;  // All pair prices {symbol: PairData}
   pairCandles: PairCandlesData | null;   // Candles for the selected pair
   pairSearchOpen: boolean;               // Pair selector dropdown state
@@ -487,7 +487,7 @@ export const useTradingStore = create<TradingStore>((set, get) => ({
   marketAnalysis: null,
 
   // ---- MULTI-PAIR STATE ----
-  selectedPair: "BTCUSDT",
+  selectedPair: "XAU_USD",
   pairPrices: {},
   pairCandles: null,
   pairSearchOpen: false,

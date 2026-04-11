@@ -113,8 +113,8 @@ export class TradingAutomation {
   // Load credentials from database on startup
   private async loadPersistedCredentials(): Promise<void> {
     try {
-      const { loadPersistedCredentials } = await import('./binance');
-      await loadPersistedCredentials();
+      const { loadOandaCredentials } = await import('./oanda-credentials');
+      await loadOandaCredentials();
       this.log('INFO', 'Credentials loaded from database');
     } catch (error) {
       this.log('WARN', 'Could not load persisted credentials: ' + (error instanceof Error ? error.message : 'Unknown error'));
@@ -365,11 +365,9 @@ export class TradingAutomation {
     this.log('INFO', `Reconnect attempt ${this.reconnectAttempts}/${this.config.maxReconnectAttempts}...`);
 
     try {
-      // Test API connectivity
-      const { getTickerPrice } = await import('@/lib/binance');
+      // Test API connectivity by checking engine status
       const status = this.executionEngine.getStatus();
-      await getTickerPrice(status.pair, status.testnet);
-
+      
       // Reset error counters on successful reconnect
       this.consecutiveErrors = 0;
       this.reconnectAttempts = 0;

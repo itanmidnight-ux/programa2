@@ -4,9 +4,21 @@ import { Activity, Wifi, WifiOff, Bell, Menu, ChevronDown, Search, TrendingUp, T
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useTradingStore, type PairData } from "@/lib/trading-store";
 import { formatPrice, formatPercent, signalBgColor } from "@/lib/utils";
+import { formatPair, getSymbolDisplayName, formatSymbolPrice } from "@/lib/format-utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { formatPair, unformatPair } from "@/lib/binance";
+
+// OANDA Markets list
+const OANDA_MARKETS = [
+  { symbol: "XAU_USD", display: "XAU/USD", category: "Metal" },
+  { symbol: "XAG_USD", display: "XAG/USD", category: "Metal" },
+  { symbol: "EUR_USD", display: "EUR/USD", category: "Forex" },
+  { symbol: "GBP_USD", display: "GBP/USD", category: "Forex" },
+  { symbol: "USD_JPY", display: "USD/JPY", category: "Forex" },
+  { symbol: "WTI_USD", display: "WTI/USD", category: "Energy" },
+  { symbol: "US30_USD", display: "US30", category: "Index" },
+  { symbol: "NAS100_USD", display: "NAS100", category: "Index" },
+];
 
 export function Header() {
   const {
@@ -22,20 +34,17 @@ export function Header() {
 
   // Get current pair data
   const currentPairData: PairData | undefined = pairPrices[selectedPair];
+  const selectedMarket = OANDA_MARKETS.find(m => m.symbol === selectedPair);
+  const pairDisplayName = selectedMarket?.display || formatPair(selectedPair);
 
-  // Filter pairs by search
-  const allPairs = Object.values(pairPrices);
-  const filteredPairs = searchTerm.length > 0
-    ? allPairs.filter(p =>
-        p.display.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.symbol.toLowerCase().includes(searchTerm.toLowerCase())
+  // Filter markets by search
+  const filteredMarkets = searchTerm.length > 0
+    ? OANDA_MARKETS.filter(m =>
+        m.display.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        m.symbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        m.category.toLowerCase().includes(searchTerm.toLowerCase())
       )
-    : allPairs.sort((a, b) => {
-        // Active pair first, then by volume
-        if (a.active) return -1;
-        if (b.active) return 1;
-        return (b.volume24h || 0) - (a.volume24h || 0);
-      });
+    : OANDA_MARKETS;
 
   const handlePairChange = useCallback((symbol: string) => {
     setIsChanging(true);
@@ -83,7 +92,7 @@ export function Header() {
             ${isChanging ? "border-blue-500/30 bg-blue-500/5" : "border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.06]"}
           `}
         >
-          <span className="text-sm font-bold text-white">{formatPair(selectedPair)}</span>
+          <span className="text-sm font-bold text-white">{pairDisplayName}</span>
           <span className="text-xs font-mono text-gray-400">
             {currentPairData?.price ? formatPrice(currentPairData.price) : formatPrice(snapshot.price)}
           </span>
@@ -125,46 +134,55 @@ export function Header() {
 
             {/* Pair List */}
             <div className="max-h-72 overflow-y-auto custom-scrollbar">
-              {filteredPairs.length === 0 ? (
+              {filteredMarkets.length === 0 ? (
                 <div className="p-4 text-center text-xs text-gray-500">
-                  No pairs found for &quot;{searchTerm}&quot;
+                  No markets found for &quot;{searchTerm}&quot;
                 </div>
               ) : (
-                filteredPairs.map((pair) => (
-                  <button
-                    key={pair.symbol}
-                    onClick={() => handlePairChange(pair.symbol)}
-                    className={`
-                      w-full flex items-center justify-between px-3 py-2.5 transition-all text-left
-                      ${pair.symbol === selectedPair
-                        ? "bg-blue-500/10 border-l-2 border-blue-500"
-                        : "hover:bg-white/[0.04] border-l-2 border-transparent"}
-                    `}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className={`text-xs font-medium ${pair.symbol === selectedPair ? "text-blue-400" : "text-gray-400"}`}>
-                        {pair.symbol === selectedPair ? "●" : ""}
-                      </span>
-                      <div>
-                        <div className="text-sm font-medium text-white">{pair.display}</div>
-                        <div className="text-[10px] text-gray-500">Vol: ${(pair.volume24h / 1e6).toFixed(1)}M</div>
+                filteredMarkets.map((market) => {
+                  const marketData = pairPrices[market.symbol];
+                  return (
+                    <button
+                      key={market.symbol}
+                      onClick={() => handlePairChange(market.symbol)}
+                      className={`
+                        w-full flex items-center justify-between px-3 py-2.5 transition-all text-left
+                        ${market.symbol === selectedPair
+                          ? "bg-blue-500/10 border-l-2 border-blue-500"
+                          : "hover:bg-white/[0.04] border-l-2 border-transparent"}
+                      `}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs font-medium ${market.symbol === selectedPair ? "text-blue-400" : "text-gray-400"}`}>
+                          {market.symbol === selectedPair ? "●" : ""}
+                        </span>
+                        <div>
+                          <div className="text-sm font-medium text-white">{market.display}</div>
+                          <div className="text-[10px] text-gray-500">{market.category}</div>
+                        </div>
                       </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-xs font-mono text-white">{formatPrice(pair.price)}</div>
-                      <div className={`text-[10px] font-mono font-medium ${pair.change24h >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                        {pair.change24h >= 0 ? "+" : ""}{pair.change24h.toFixed(2)}%
+                      <div className="text-right">
+                        <div className="text-xs font-mono text-white">
+                          {marketData?.price ? formatPrice(marketData.price) : "—"}
+                        </div>
+                        {marketData?.change24h !== undefined ? (
+                          <div className={`text-[10px] font-mono font-medium ${marketData.change24h >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                            {marketData.change24h >= 0 ? "+" : ""}{marketData.change24h.toFixed(2)}%
+                          </div>
+                        ) : (
+                          <div className="text-[10px] text-gray-600">—</div>
+                        )}
                       </div>
-                    </div>
-                  </button>
-                ))
+                    </button>
+                  );
+                })
               )}
             </div>
 
             {/* Footer */}
             <div className="px-3 py-2 border-t border-white/[0.06] bg-white/[0.02]">
               <div className="text-[10px] text-gray-600">
-                {filteredPairs.length} pairs · Real-time via Binance {process.env.NEXT_PUBLIC_TESTNET === "true" ? "Testnet" : ""}
+                {filteredMarkets.length} markets · Real-time via OANDA
               </div>
             </div>
           </div>

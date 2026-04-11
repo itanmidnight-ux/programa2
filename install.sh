@@ -241,23 +241,14 @@ echo -e "${GREEN}  ✓${NC} Database configured"
 echo ""
 echo -e "${YELLOW}[5/6]${NC} Building application..."
 
+# Always clean build caches and lock files to prevent stale type errors
+echo -e "${BLUE}  →${NC} Cleaning build caches..."
+rm -rf .next/lock .next/cache .next 2>/dev/null || true
+
 if [ "$FORCE" = "true" ]; then
   install_step "Force rebuild..."
-  rm -rf .next
   bun run build
   echo -e "${GREEN}  ✓${NC} Build complete"
-elif [ -d ".next/standalone" ] && [ -f ".next/standalone/server.js" ]; then
-  # Check if source files changed since last build
-  SRC_MTIME=$(find src -name "*.ts" -o -name "*.tsx" 2>/dev/null | xargs stat -c %Y 2>/dev/null | sort -rn | head -1 || echo 0)
-  BUILD_MTIME=$(stat -c %Y .next/standalone/server.js 2>/dev/null || stat -f %m .next/standalone/server.js 2>/dev/null || echo 0)
-
-  if [ "$SRC_MTIME" -le "$BUILD_MTIME" ] && [ "$BUILD_MTIME" -ne 0 ]; then
-    skip_step "Build up to date"
-  else
-    echo -e "${BLUE}  →${NC} Source files changed, rebuilding..."
-    bun run build
-    echo -e "${GREEN}  ✓${NC} Build complete"
-  fi
 else
   install_step "Building application..."
   bun run build
