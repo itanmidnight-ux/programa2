@@ -35,6 +35,9 @@ import type { Trade } from '@/lib/risk-manager';
 import { SmartStopLoss } from '@/lib/smart-stop-loss';
 import type { StopAction } from '@/lib/smart-stop-loss';
 import { SmartStopTrade } from '@/lib/smart-stop-trade';
+import { BurstEngine } from '@/lib/burst-engine';
+import type { BurstResult } from '@/lib/burst-engine';
+import { LotManager } from '@/lib/lot-manager';
 import { evaluateMarket } from '@/lib/market-intelligence';
 import type { MarketIntelligenceResult } from '@/lib/market-intelligence';
 import { db } from '@/lib/db';
@@ -147,6 +150,8 @@ export class ExecutionEngine {
   private riskManager: RiskManager;
   private smartStopLoss: SmartStopLoss;
   private smartStopTrade: SmartStopTrade;
+  private burstEngine: BurstEngine;
+  private lotManager: LotManager;
 
   // Cache
   private candles5m: Candle[] = [];
@@ -184,6 +189,8 @@ export class ExecutionEngine {
     this.riskManager = new RiskManager();
     this.smartStopLoss = new SmartStopLoss();
     this.smartStopTrade = new SmartStopTrade();
+    this.burstEngine = new BurstEngine();
+    this.lotManager = new LotManager();
 
     console.log(`[ENGINE] Initialized. Symbol: ${this.config.symbol}, Broker: ${this.config.broker}, DryRun: ${this.config.dryRun}`);
 
@@ -410,24 +417,58 @@ export class ExecutionEngine {
             console.log(`[ENGINE] NEUTRAL signal — score: ${ensemble.weightedScore.toFixed(3)}, confidence: ${ensemble.confidence.toFixed(2)}, reasons: ${ensemble.reasons.slice(0, 3).join('; ')}`);
           }
         } else {
-          const signal = {
-            name: 'Ensemble',
-            direction: ensemble.finalSignal,
-            confidence: ensemble.confidence,
-            reasons: ensemble.reasons,
-            sl: ensemble.sl,
-            tp: ensemble.tp,
-            riskReward: analysis.riskRewardRatio,
-          };
+          // Evaluate if this is a STRONG signal for burst mode
+          const burstEval = await this.burstEngine.evaluate(
+            analysis,
+            ensemble,
+            mlPrediction,
+            marketIntel
+          );
 
-          const validation = this.validateEntry(signal, analysis);
-          if (validation.valid) {
-            tradeResult = await this.executeTrade(signal, analysis);
-            action = tradeResult.success ? 'TRADE_OPENED' : 'TRADE_FAILED';
+          if (burstEval.shouldBurst) {
+            // STRONG SIGNAL - Execute burst mode
+            console.log(
+              `[ENGINE] 🚀 STRONG SIGNAL detected: ${burstEval.signalStrength.level} ` +
+              `(${burstEval.signalStrength.score.toFixed(0)}) - Activating BURST MODE`
+            );
+
+            const burstResult = await this.burstEngine.executeBurst(
+              this.config.symbol,
+              ensemble.finalSignal as 'LONG' | 'SHORT',
+              burstEval.signalStrength,
+              analysis,
+              (price, side, analysis) => this.smartStopLoss.calculateInitialSL(price, side as 'LONG' | 'SHORT', analysis),
+              (price, side, analysis, sl) => this.smartStopLoss.calculateInitialTP(price, side as 'LONG' | 'SHORT', analysis, sl),
+              this.config.dryRun
+            );
+
+            if (burstResult.triggered) {
+              action = `BURST_EXECUTED: ${burstResult.tradesExecuted} trades`;
+              console.log(`[ENGINE] 📊 Burst result: ${burstResult.tradesExecuted} executed, ${burstResult.tradesFailed} failed`);
+            } else {
+              action = `BURST_FAILED: ${burstResult.errors.join(', ')}`;
+            }
           } else {
-            action = `BLOCKED: ${validation.reason}`;
-            const rr = analysis.riskRewardRatio;
-            console.log(`[ENGINE] Entry blocked: signal=${signal.direction}, confidence=${signal.confidence.toFixed(2)}, minConf=${this.config.minConfidence}, RR=${rr.toFixed(2)}, minRR=${this.riskManager.config.minRiskReward}, ATR=${analysis.atrPct.toFixed(2)}%. Reason: ${validation.reason}`);
+            // Normal signal - execute single trade as before
+            const signal = {
+              name: 'Ensemble',
+              direction: ensemble.finalSignal,
+              confidence: ensemble.confidence,
+              reasons: ensemble.reasons,
+              sl: ensemble.sl,
+              tp: ensemble.tp,
+              riskReward: analysis.riskRewardRatio,
+            };
+
+            const validation = this.validateEntry(signal, analysis);
+            if (validation.valid) {
+              tradeResult = await this.executeTrade(signal, analysis);
+              action = tradeResult.success ? 'TRADE_OPENED' : 'TRADE_FAILED';
+            } else {
+              action = `BLOCKED: ${validation.reason}`;
+              const rr = analysis.riskRewardRatio;
+              console.log(`[ENGINE] Entry blocked: signal=${signal.direction}, confidence=${signal.confidence.toFixed(2)}, minConf=${this.config.minConfidence}, RR=${rr.toFixed(2)}, minRR=${this.riskManager.config.minRiskReward}, ATR=${analysis.atrPct.toFixed(2)}%. Reason: ${validation.reason}`);
+            }
           }
         }
       }
@@ -1037,22 +1078,47 @@ export class ExecutionEngine {
   /** Calculate position size based on risk parameters */
   calculatePositionSize(analysis: FullAnalysis): number {
     if (!this.currentPosition) {
-      const price = analysis.price;
-      const sl = analysis.suggestedSL;
-      if (price <= 0 || sl <= 0) return 0;
-
-      // Use a simplified size calculation
       const balance = this.getActualBalance();
-      const riskPct = this.riskManager.getAdjustedRisk(analysis, this.riskManager.config.maxRiskPerTrade);
-      const riskAmount = balance * (riskPct / 100);
-      const priceRisk = Math.abs(price - sl);
 
-      if (priceRisk <= 0) return 0;
+      // Use LotManager for MT5-style lot sizing
+      const slPips = this.calculateStopLossPips(analysis);
+      const lotSize = this.lotManager.calculateLotSize(
+        balance,
+        slPips,
+        0.55, // Default win rate until we have real stats
+        15,   // Default avg win
+        10    // Default avg loss
+      );
 
-      const rawSize = +(riskAmount / priceRisk).toFixed(6);
-      return +(rawSize * this.positionSizeMultiplier).toFixed(6);
+      // Convert lot size to units for the broker
+      const symbolInfo = this.lotManager.getSymbolInfo(this.config.symbol);
+      const units = this.lotManager.lotToUnits(lotSize, symbolInfo);
+
+      console.log(
+        `[ENGINE] Position size: ${lotSize.toFixed(2)} lots = ${units.toFixed(0)} units ` +
+        `(SL: ${slPips.toFixed(1)} pips, Balance: $${balance.toFixed(2)})`
+      );
+
+      return +(units * this.positionSizeMultiplier).toFixed(6);
     }
     return 0;
+  }
+
+  /** Calculate stop loss in pips */
+  private calculateStopLossPips(analysis: FullAnalysis): number {
+    const price = analysis.price;
+    const sl = analysis.suggestedSL;
+    if (price <= 0 || sl <= 0) return 10; // Default 10 pips
+
+    const priceRisk = Math.abs(price - sl);
+    // Estimate pips based on symbol type
+    if (this.config.symbol.includes('JPY')) {
+      return +(priceRisk / 0.01).toFixed(1);
+    } else if (this.config.symbol.includes('XAU')) {
+      return +(priceRisk / 0.01).toFixed(1); // Gold: $0.01 = 1 pip
+    } else {
+      return +(priceRisk / 0.0001).toFixed(1); // Forex: 0.0001 = 1 pip
+    }
   }
 
   /** Validate entry conditions before placing a trade */

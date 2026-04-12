@@ -709,12 +709,12 @@ export class StrategyEnsemble {
     ];
 
     this.defaultConfig = {
-      Momentum: { enabled: true, weight: 1.0, minConfidence: 0.30, params: {} },
-      MeanReversion: { enabled: true, weight: 0.8, minConfidence: 0.35, params: {} },
-      Breakout: { enabled: true, weight: 0.9, minConfidence: 0.35, params: {} },
-      TrendFollowing: { enabled: true, weight: 1.2, minConfidence: 0.40, params: {} },
-      Scalping: { enabled: true, weight: 0.6, minConfidence: 0.25, params: {} },
-      VolumeWeighted: { enabled: true, weight: 1.0, minConfidence: 0.30, params: {} },
+      Momentum: { enabled: true, weight: 1.0, minConfidence: 0.45, params: {} },
+      MeanReversion: { enabled: true, weight: 0.8, minConfidence: 0.50, params: {} },
+      Breakout: { enabled: true, weight: 0.9, minConfidence: 0.50, params: {} },
+      TrendFollowing: { enabled: true, weight: 1.2, minConfidence: 0.55, params: {} },
+      Scalping: { enabled: true, weight: 0.6, minConfidence: 0.40, params: {} },
+      VolumeWeighted: { enabled: true, weight: 1.0, minConfidence: 0.45, params: {} },
     };
   }
 

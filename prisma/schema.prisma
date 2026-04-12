@@ -49,11 +49,16 @@ model Trade {
   leverage      Int      @default(1)
   exitReason    String?                     // STOP_LOSS, TAKE_PROFIT, TRAILING, MANUAL, SIGNAL
   commission    Float    @default(0)
+  signalStrength Float?                    // 0-100: strength of signal that triggered trade
+  entryQuality  Float?                     // 0-100: entry quality score
+  tradeGroupId  Int?                       // ID of burst group (NULL if isolated trade)
+  waveNumber    Int?                       // Order number within burst (1, 2, 3...)
   openedAt      DateTime @default(now())
   closedAt      DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   positions     Position[]
+  tradeGroup    TradeGroup?                @relation("TradeGroupTrades", fields: [tradeGroupId], references: [id])
 }
 
 // ---------- Positions (current open) ----------
@@ -297,6 +302,31 @@ model BacktestResult {
   name      String
   results   String   @default("{}")  // JSON backtest results
   createdAt DateTime @default(now())
+}
+
+// ---------- Trade Groups (Burst Trading) ----------
+model TradeGroup {
+  id              Int      @id @default(autoincrement())
+  createdAt       DateTime @default(now())
+  pair            String
+  side            String   // LONG or SHORT
+  signalStrength  Float    // 0-100
+  confidence      Float    // 0-1
+  confluenceScore Float    // 0-100
+  triggerReason   String   // What triggered the burst
+  totalTrades     Int      // How many trades were executed
+  totalSize       Float    // Total accumulated size
+  avgEntryPrice   Float    // Average entry price
+  status          String   // ACTIVE, CLOSED, PARTIAL
+  closeReason     String?
+  closeTime       DateTime?
+  totalPnl        Float    @default(0)
+  totalPnlPct     Float    @default(0)
+  maxDrawdown     Float    @default(0)
+  bestTrade       Float    @default(0)
+  worstTrade      Float    @default(0)
+  duration        Int?     // minutes from open to full close
+  trades          Trade[]  @relation("TradeGroupTrades")
 }
 
 // ============================================

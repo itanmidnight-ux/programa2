@@ -473,6 +473,30 @@ export async function loadAllAppSettings(): Promise<Record<string, string>> {
   }
 }
 
+/** Load a single app setting by key */
+export async function loadAppSetting(key: string): Promise<string | null> {
+  try {
+    const setting = await db.appSetting.findUnique({ where: { key } });
+    return setting?.value || null;
+  } catch (error) {
+    console.error(`[ConfigPersistence] loadAppSetting(${key}) error:`, error);
+    return null;
+  }
+}
+
+/** Save a single app setting */
+export async function saveAppSetting(key: string, value: string, section: string = 'general'): Promise<void> {
+  try {
+    await db.appSetting.upsert({
+      where: { key },
+      update: { value, section },
+      create: { key, value, section },
+    });
+  } catch (error) {
+    console.error(`[ConfigPersistence] saveAppSetting(${key}) error:`, error);
+  }
+}
+
 /**
  * Apply app settings to the execution engine's runtime config.
  * Called when settings change from the UI.

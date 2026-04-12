@@ -9,13 +9,14 @@
 import type { Candle } from '@/lib/analysis-engine';
 import type { IBroker, SymbolSpec, OrderResult, PositionData, AccountData, OrderBookData } from '@/lib/broker-interface';
 import { getOandaBroker, OandaAdapter } from '@/lib/oanda-adapter';
+import { getCTraderBroker, cTraderAdapter } from '@/lib/ctrader-adapter';
 
 // ============================================
 // Manager State
 // ============================================
 
 interface BrokerManagerState {
-  activeBroker: 'oanda' | 'binance' | null;
+  activeBroker: 'oanda' | 'ctrader' | 'binance' | null;
   broker: IBroker | null;
   activeSymbol: string;
   connected: boolean;
@@ -65,6 +66,44 @@ export async function initializeBroker(
     return {
       success: false,
       message: err instanceof Error ? err.message : 'Failed to initialize broker',
+    };
+  }
+}
+
+/**
+ * Initialize the broker manager with cTrader Open API credentials.
+ * Simpler setup - just App ID, App Secret, and cTrader ID.
+ */
+export async function initializeCTraderBroker(
+  appId: string,
+  appSecret: string,
+  ctraderId: string,
+  isDemo: boolean = true,
+  symbol: string = 'EURUSD'
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const broker = getCTraderBroker();
+    broker.setCredentials(`${appId}:${ctraderId}`, appSecret, isDemo);
+
+    // Validate connection
+    const result = await broker.validateCredentials();
+    if (!result.valid) {
+      return { success: false, message: result.message };
+    }
+
+    state.activeBroker = 'ctrader';
+    state.broker = broker;
+    state.activeSymbol = symbol;
+    state.connected = true;
+
+    const accountData = await broker.getAccountData();
+    console.log(`[BROKER] Initialized: cTrader (${isDemo ? 'Demo' : 'Live'}) | Symbol: ${symbol} | Balance: ${accountData.balance} ${accountData.currency}`);
+
+    return { success: true, message: result.message };
+  } catch (err) {
+    return {
+      success: false,
+      message: err instanceof Error ? err.message : 'Failed to initialize cTrader broker',
     };
   }
 }

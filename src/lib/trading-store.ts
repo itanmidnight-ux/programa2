@@ -530,12 +530,12 @@ export const useTradingStore = create<TradingStore>((set, get) => ({
     })),
   clearLogs: () => set({ logs: [] }),
 
-  // Trade action
+  // Trade action - close with real PnL (no random mock)
   closeTrade: (id) =>
     set((s) => ({
       trades: s.trades.map((t) =>
         t.id === id
-          ? { ...t, status: "CLOSED" as const, pnl: +(t.pnl + Math.random() * 10 - 3).toFixed(2) }
+          ? { ...t, status: "CLOSED" as const }
           : t
       ),
     })),

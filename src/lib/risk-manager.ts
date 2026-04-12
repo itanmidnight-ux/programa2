@@ -28,7 +28,8 @@ export interface RiskConfig {
   kellyFraction: number;         // fraction of Kelly to use (default 0.25)
   trailingStopATR: number;       // ATR multiplier for trailing stop (default 2)
   breakEvenATR: number;          // ATR multiplier for break-even trigger (default 1)
-  maxOpenPositions: number;      // maximum simultaneous positions (default 1)
+  maxOpenPositions: number;      // maximum simultaneous positions (default 25 for burst)
+  maxTotalExposure: number;      // max % of balance in total exposure (default 30)
   emergencyStopPct: number;      // emergency stop if daily loss exceeds this (default 5%)
 }
 
@@ -116,7 +117,8 @@ export class RiskManager {
       kellyFraction: 0.25,
       trailingStopATR: 2,
       breakEvenATR: 1,
-      maxOpenPositions: 5,  // Allow up to 5 simultaneous trades
+      maxOpenPositions: 25,  // Allow up to 25 simultaneous trades for burst mode
+      maxTotalExposure: 30,  // Max 30% of balance in total exposure
       emergencyStopPct: 8.0,
       ...config,
     };
@@ -229,6 +231,14 @@ export class RiskManager {
     const openPositions = trades.filter(t => t.status === 'OPEN');
     if (openPositions.length >= this.config.maxOpenPositions) {
       return { allowed: false, reason: `Max open positions (${openPositions.length}/${this.config.maxOpenPositions})` };
+    }
+
+    // Check total exposure
+    const totalExposure = openPositions
+      .reduce((sum, t) => sum + (t.entryPrice * t.quantity), 0);
+    const exposurePct = balance > 0 ? (totalExposure / balance) * 100 : 0;
+    if (exposurePct > this.config.maxTotalExposure) {
+      return { allowed: false, reason: `Total exposure ${exposurePct.toFixed(1)}% exceeds max ${this.config.maxTotalExposure}%` };
     }
 
     // Check emergency stop
