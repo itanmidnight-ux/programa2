@@ -753,8 +753,8 @@ export function SettingsPanel() {
           <div className={cn("w-2 h-2 rounded-full", accountMode === "testnet" ? "bg-emerald-400" : "bg-red-400")} />
           <span className={cn("text-xs font-mono", accountMode === "testnet" ? "text-emerald-400" : "text-red-400")}>
             {accountMode === "testnet"
-              ? "testnet.binance.vision — Operaciones con dinero ficticio, sin riesgo"
-              : "api.binance.com — DINERO REAL, riesgo financiero"}
+              ? "api-fxpractice.oanda.com — Operaciones demo sin riesgo real"
+              : "api-fxtrade.oanda.com — DINERO REAL, riesgo financiero"}
           </span>
         </div>
 
@@ -770,8 +770,8 @@ export function SettingsPanel() {
               <div>
                 <p className="text-xs font-semibold text-red-400">Atención: Cuenta Real</p>
                 <p className="text-[10px] text-red-300/70 mt-1">
-                  Al activar la cuenta real, todas las operaciones usarán dinero real de tu cuenta Binance.
-                  Asegúrate de tener configuradas las API keys correctas. ¿Continuar?
+                  Al activar la cuenta real, todas las operaciones usarán dinero real de tu cuenta OANDA.
+                  Asegúrate de tener configurado correctamente el Account ID y API Token. ¿Continuar?
                 </p>
                 <div className="flex gap-2 mt-2">
                   <button

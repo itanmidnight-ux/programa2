@@ -9,7 +9,8 @@
 
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getTickerPrice, getOrderBook, isTestnetMode, getCurrentCredentials } from "@/lib/binance";
+import { getTickerPrice, getOrderBook } from "@/lib/broker-manager";
+import { hasOandaCredentials } from "@/lib/oanda-credentials";
 import { automation } from "@/lib/automation";
 
 interface ExecuteRequest {
@@ -26,8 +27,9 @@ const MIN_QUANTITY = 0.0001;
 const MAX_PAIR_LENGTH = 20;
 
 function sanitizePair(pair: string): string {
-  // Only allow alphanumeric characters and /
-  const cleaned = pair.replace(/[^A-Za-z0-9/]/g, "").toUpperCase();
+  // OANDA symbols use underscore format: XAU_USD, EUR_USD, etc.
+  const normalized = pair.replace("/", "_");
+  const cleaned = normalized.replace(/[^A-Za-z0-9_]/g, "").toUpperCase();
   return cleaned.slice(0, MAX_PAIR_LENGTH);
 }
 
@@ -44,7 +46,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const pair = sanitizePair(inputPair || process.env.TRADING_PAIR || "BTC/USDT");
+    const pair = sanitizePair(inputPair || process.env.TRADING_SYMBOL || "XAU_USD");
     if (!pair || pair.length < 3) {
       return NextResponse.json(
         { success: false, error: "Invalid trading pair", message: "Validation failed" },
@@ -52,9 +54,7 @@ export async function POST(request: Request) {
       );
     }
     
-    const testnet = isTestnetMode();
-    const creds = getCurrentCredentials();
-    const hasRealKeys = !!(creds.apiKey && creds.apiSecret);
+    const hasRealKeys = hasOandaCredentials();
 
     // ---- CLOSE action ----
     if (action === "close") {
@@ -84,7 +84,7 @@ export async function POST(request: Request) {
 
       let currentPrice = openPosition.currentPrice;
       try {
-        currentPrice = await getTickerPrice(pair, testnet);
+        currentPrice = await getTickerPrice(pair);
       } catch {
         // Use stored price
       }
@@ -208,7 +208,7 @@ export async function POST(request: Request) {
         // Get current price
         let currentPrice = inputPrice || 0;
         if (!currentPrice) {
-          currentPrice = await getTickerPrice(pair, testnet);
+          currentPrice = await getTickerPrice(pair);
         }
         if (!currentPrice || currentPrice <= 0) {
           return {
@@ -221,7 +221,7 @@ export async function POST(request: Request) {
         // Get order book
         let orderBook = { spread: 1 };
         try {
-          orderBook = await getOrderBook(pair, 5, testnet);
+          orderBook = await getOrderBook(pair, 5);
         } catch { /* skip */ }
 
         // Determine side

@@ -7,22 +7,21 @@
 // ============================================
 
 import { NextResponse } from "next/server";
-import { getKlines, isTestnetMode } from "@/lib/binance";
+import { getKlines } from "@/lib/broker-manager";
 import { predict } from "@/lib/ml-predictor";
 import { db } from "@/lib/db";
 
 export async function GET() {
   const startTime = Date.now();
   try {
-    const pair = process.env.TRADING_PAIR || "BTC/USDT";
-    const testnet = isTestnetMode();
+    const pair = process.env.TRADING_SYMBOL || "XAU_USD";
 
     // Fetch candles for feature extraction
     let candles5m: any[] = [];
     try {
-      candles5m = await getKlines(pair, "5m", 200, testnet);
+      candles5m = await getKlines(pair, "5m", 200);
     } catch {
-      // Binance unavailable, use defaults
+      // broker unavailable, use defaults
     }
 
     if (candles5m.length < 20) {

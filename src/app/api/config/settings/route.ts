@@ -12,12 +12,12 @@ import { db } from "@/lib/db";
 // ---- Default settings seed ----
 const DEFAULT_SETTINGS: { key: string; value: string; section: string; description?: string }[] = [
   // API
-  { key: "api_key", value: "", section: "api", description: "Binance API Key" },
-  { key: "api_secret", value: "", section: "api", description: "Binance API Secret" },
-  { key: "testnet", value: "true", section: "api", description: "Use Binance testnet" },
-  { key: "confirm_mainnet", value: "false", section: "api", description: "Confirm mainnet trading" },
+  { key: "oanda_account_id", value: "", section: "api", description: "OANDA Account ID" },
+  { key: "oanda_api_token", value: "", section: "api", description: "OANDA API Token" },
+  { key: "oanda_is_demo", value: "true", section: "api", description: "Use OANDA demo environment" },
+  { key: "confirm_live_trading", value: "false", section: "api", description: "Confirm live trading mode" },
   // Trading
-  { key: "symbol", value: "BTC/USDT", section: "trading", description: "Trading symbol" },
+  { key: "symbol", value: "XAU_USD", section: "trading", description: "Trading symbol (OANDA format)" },
   { key: "timeframe", value: "5m", section: "trading", description: "Candle timeframe" },
   { key: "loop_sleep", value: "5", section: "trading", description: "Loop sleep seconds" },
   { key: "history_limit", value: "200", section: "trading", description: "Candles to fetch" },
@@ -25,7 +25,7 @@ const DEFAULT_SETTINGS: { key: string; value: string; section: string; descripti
   { key: "min_confidence", value: "0.62", section: "signals", description: "Min signal confidence" },
   { key: "strong_confidence", value: "0.78", section: "signals", description: "Strong confidence threshold" },
   { key: "adx_min", value: "18", section: "signals", description: "Min ADX for trend" },
-  { key: "max_spread", value: "1.5", section: "signals", description: "Max spread USDT" },
+  { key: "max_spread", value: "0.3", section: "signals", description: "Max spread threshold" },
   { key: "min_volume", value: "0.5", section: "signals", description: "Min volume ratio" },
   // Risk
   { key: "risk_per_trade", value: "1.2", section: "risk", description: "Risk per trade %" },
@@ -36,7 +36,7 @@ const DEFAULT_SETTINGS: { key: string; value: string; section: string; descripti
   { key: "take_profit", value: "2.5", section: "risk", description: "Default take profit %" },
   // Execution
   { key: "max_slippage", value: "0.1", section: "execution", description: "Max slippage %" },
-  { key: "max_spread_exec", value: "2.0", section: "execution", description: "Max spread exec USDT" },
+  { key: "max_spread_exec", value: "0.5", section: "execution", description: "Max spread during execution" },
   { key: "order_timeout", value: "5000", section: "execution", description: "Order timeout ms" },
   { key: "split_threshold", value: "500", section: "execution", description: "Split threshold $" },
   { key: "retry_attempts", value: "3", section: "execution", description: "Retry attempts" },

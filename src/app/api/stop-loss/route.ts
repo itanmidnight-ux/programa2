@@ -132,12 +132,12 @@ export async function GET() {
 
       if (openPos) {
         // Get current price
-        const pair = openPos.pair || process.env.TRADING_PAIR || "BTCUSDT";
+        const pair = openPos.pair || process.env.TRADING_SYMBOL || "XAU_USD";
 
         let currentPrice = openPos.currentPrice;
         try {
-          const { getTickerPrice, isTestnetMode } = await import("@/lib/binance");
-          const price = await getTickerPrice(pair, isTestnetMode());
+          const { getTickerPrice } = await import("@/lib/broker-manager");
+          const price = await getTickerPrice(pair);
           if (price > 0) currentPrice = price;
         } catch { /* use DB price */ }
 
@@ -156,9 +156,9 @@ export async function GET() {
 
         // Run a quick analysis for proper status computation
         try {
-          const { getKlines, isTestnetMode } = await import("@/lib/binance");
+          const { getKlines } = await import("@/lib/broker-manager");
           const { analyzeMarket } = await import("@/lib/analysis-engine");
-          const klines = await getKlines(pair, "5m", 50, isTestnetMode());
+          const klines = await getKlines(pair, "5m", 50);
           const fullAnalysis = analyzeMarket(klines, [], [], []);
           analysis = {
             price: fullAnalysis.price,

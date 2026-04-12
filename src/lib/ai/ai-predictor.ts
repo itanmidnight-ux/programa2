@@ -7,7 +7,7 @@
 import * as tf from '@tensorflow/tfjs';
 import * as fs from 'fs';
 import { db } from '@/lib/db';
-import { getKlines } from '@/lib/binance';
+import { getKlines } from '@/lib/broker-manager';
 import { extractFeatures } from './ai-model-trainer';
 
 // ============================================

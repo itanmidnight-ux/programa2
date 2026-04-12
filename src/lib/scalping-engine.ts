@@ -9,7 +9,7 @@
 // CAPA 4: Gestión dinámica de riesgo
 // ============================================
 
-import { getKlines, getOrderBook, getTickerPrice, placeLimitOrder, cancelOrder, getOrderStatus, isTestnetMode, getCurrentCredentials } from '@/lib/binance';
+import { getKlines, getOrderBook, getTickerPrice, placeLimitOrder, cancelOrder, getOrderStatus, isTestnetMode, getCurrentCredentials } from '@/lib/market-bridge';
 import { analyzeMarket, Candle } from '@/lib/analysis-engine';
 import { db } from '@/lib/db';
 import type { Trade } from '@/lib/risk-manager';
@@ -2522,7 +2522,7 @@ export class ScalpingEngine {
     const creds = getCurrentCredentials();
     
     this.config = {
-      pair: process.env.TRADING_PAIR || 'BTCUSDT',
+      pair: process.env.TRADING_SYMBOL || 'XAU_USD',
       testnet: isTestnetMode(),
       apiKey: creds.apiKey,
       apiSecret: creds.apiSecret,

@@ -1,13 +1,13 @@
 // ============================================
 // RECO-TRADING - Market Analysis API
 // ============================================
-// GET /api/market/analysis?pair=BTC/USDT
+// GET /api/market/analysis?pair=XAU_USD
 // Returns full technical analysis with all
 // indicators across multiple timeframes
 // ============================================
 
 import { NextResponse } from "next/server";
-import { getKlines, getOrderBook, get24hTicker, isTestnetMode } from "@/lib/binance";
+import { getKlines, getOrderBook } from "@/lib/broker-manager";
 import { analyzeSignals } from "@/lib/signal-engine";
 
 interface Candle {
@@ -66,39 +66,46 @@ export async function GET(request: Request) {
   const startTime = Date.now();
   try {
     const { searchParams } = new URL(request.url);
-    const pair = searchParams.get("pair") || process.env.TRADING_PAIR || "BTC/USDT";
-    const testnet = isTestnetMode();
+    const pair = (searchParams.get("pair") || process.env.TRADING_SYMBOL || "XAU_USD")
+      .replace("/", "_")
+      .toUpperCase();
 
-    // Fetch data from Binance
+    // Fetch data from broker manager
     let klines5m: Candle[] = [];
     let klines15m: Candle[] = [];
     let klines1h: Candle[] = [];
     let klines4h: Candle[] = [];
     let orderBookData: any = null;
-    let tickerData: any = null;
+    let change24h = 0;
+    let volume24h = 0;
 
     try {
-      [klines5m, klines15m, klines1h, klines4h, orderBookData, tickerData] = await Promise.all([
-        getKlines(pair, "5m", 200, testnet).catch(() => []),
-        getKlines(pair, "15m", 200, testnet).catch(() => []),
-        getKlines(pair, "1h", 200, testnet).catch(() => []),
-        getKlines(pair, "4h", 200, testnet).catch(() => []),
-        getOrderBook(pair, 10, testnet).catch(() => null),
-        get24hTicker(pair, testnet).catch(() => null),
+      [klines5m, klines15m, klines1h, klines4h, orderBookData] = await Promise.all([
+        getKlines(pair, "5m", 200).catch(() => []),
+        getKlines(pair, "15m", 200).catch(() => []),
+        getKlines(pair, "1h", 200).catch(() => []),
+        getKlines(pair, "4h", 200).catch(() => []),
+        getOrderBook(pair, 10).catch(() => null),
       ]);
     } catch {
-      // Binance not available
+      // broker unavailable
     }
 
     if (klines5m.length === 0) {
       return NextResponse.json({
         error: "Unable to fetch market data",
-        notice: "Binance API unavailable or no data returned. Check API keys and network.",
+        notice: "Broker API unavailable or no data returned. Check OANDA credentials and network.",
         api_latency_ms: Date.now() - startTime,
       }, { status: 503 });
     }
 
     const currentPrice = klines5m[klines5m.length - 1]?.close || 0;
+
+    if (klines5m.length > 1) {
+      const first = klines5m[0].open || klines5m[0].close || currentPrice;
+      change24h = first > 0 ? ((currentPrice - first) / first) * 100 : 0;
+      volume24h = klines5m.reduce((sum, c) => sum + (c.volume || 0), 0);
+    }
     const spread = orderBookData?.spread || 0;
 
     // Run analysis on multiple timeframes
@@ -128,8 +135,8 @@ export async function GET(request: Request) {
       pair,
       timestamp: new Date().toISOString(),
       price: +currentPrice.toFixed(2),
-      change_24h: tickerData ? +parseFloat(tickerData.priceChangePercent).toFixed(2) : 0,
-      volume_24h: tickerData ? +parseFloat(tickerData.quoteVolume).toFixed(2) : 0,
+      change_24h: +change24h.toFixed(2),
+      volume_24h: +volume24h.toFixed(2),
       spread: orderBookData?.spread || 0,
       bid: orderBookData?.bid || 0,
       ask: orderBookData?.ask || 0,

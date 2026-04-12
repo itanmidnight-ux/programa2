@@ -2,20 +2,20 @@
 // AI MODEL TRAINER - Entrenamiento de Modelos
 // ============================================
 // Entrena redes neuronales específicas por par/timeframe
-// usando TensorFlow.js y datos históricos de Binance
+// usando TensorFlow.js y datos históricos del broker configurado
 
 import * as tf from '@tensorflow/tfjs';
 import * as fs from 'fs';
 import * as path from 'path';
 import { db } from '@/lib/db';
-import { getKlines } from '@/lib/binance';
+import { getKlines } from '@/lib/broker-manager';
 
 // ============================================
 // TYPES & INTERFACES
 // ============================================
 
 export interface TrainingConfig {
-  pair: string;              // 'BTCUSDT', 'ETHUSDT', etc
+  pair: string;              // 'XAU_USD', 'EUR_USD', etc
   timeframe: string;         // '1m', '5m', '15m', '1h', '4h'
   lookbackDays: number;      // Days of historical data (180-365)
   batchSize: number;         // Batch size (32)
@@ -50,7 +50,7 @@ export interface TrainingData {
 // ============================================
 
 const DEFAULT_CONFIG: TrainingConfig = {
-  pair: 'BTCUSDT',
+  pair: 'XAU_USD',
   timeframe: '1m',
   lookbackDays: 180,
   batchSize: 32,

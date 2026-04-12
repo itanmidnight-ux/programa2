@@ -7,7 +7,6 @@
 // ============================================
 
 import { ExecutionEngine, type EngineStatus, type TickResult } from './execution-engine';
-import { getBatchPrices, DEFAULT_PAIRS, isTestnetMode } from './binance';
 
 export interface ParallelConfig {
   pairs: string[];
@@ -51,7 +50,7 @@ export class ParallelEngine {
   private lastPortfolioStatus: PortfolioStatus | null = null;
 
   constructor(config?: Partial<ParallelConfig>) {
-    const pairsEnv = process.env.TRADING_PAIRS || process.env.TRADING_PAIR || 'BTCUSDT';
+    const pairsEnv = process.env.TRADING_PAIRS || process.env.TRADING_SYMBOL || 'XAU_USD';
     const pairs = pairsEnv.includes(',') ? pairsEnv.split(',').map(p => p.trim()) : [pairsEnv];
     
     this.config = {

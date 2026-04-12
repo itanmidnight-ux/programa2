@@ -1,306 +1,210 @@
 #!/usr/bin/env bash
 # ============================================
-# RECO-TRADING DASHBOARD - INSTALLER
+# RECO-TRADING DASHBOARD - UNIVERSAL INSTALLER
+# Linux distros + Termux compatible
 # ============================================
-# 100% PORTABLE — everything installs relative
-# to the folder where this script lives.
-# Just copy the project folder anywhere and run:
-#   ./install.sh
-#
-# HOW IT WORKS:
-# - Detects the project directory automatically
-# - Sets DATABASE_URL to the correct absolute path
-#   for this system (works on ANY Linux/Unix)
-# - All internal paths are computed dynamically
-# ============================================
-set -e
+set -euo pipefail
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m'
-
-# ---- Detect where this script is located ----
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; CYAN='\033[0;36m'; NC='\033[0m'
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}" )" && pwd)"
 cd "$ROOT_DIR"
+
+FORCE=false
+DRY_RUN=false
+APP_TIMEZONE="${APP_TIMEZONE:-America/New_York}"
+for arg in "$@"; do
+  case "$arg" in
+    --force|-f) FORCE=true ;;
+    --dry-run) DRY_RUN=true ;;
+  esac
+done
+
+IS_TERMUX=false
+[[ -n "${PREFIX:-}" && "$PREFIX" == *"com.termux"* ]] && IS_TERMUX=true
+IS_ROOT=false
+[[ "$(id -u)" -eq 0 ]] && IS_ROOT=true
+SUDO_CMD=""
+if ! $IS_ROOT && ! $IS_TERMUX && command -v sudo >/dev/null 2>&1; then
+  SUDO_CMD="sudo"
+fi
+
+run_cmd() {
+  if $DRY_RUN; then
+    echo -e "${YELLOW}[DRY-RUN]${NC} $*"
+  else
+    eval "$@"
+  fi
+}
+
+progress() {
+  local step="$1" total="$2" msg="$3"
+  local pct=$(( step * 100 / total ))
+  local bars=$(( pct / 4 ))
+  local bar=""
+  for ((i=0; i<bars; i++)); do bar+="█"; done
+  printf "${CYAN}[%3d%%]${NC} %-25s %s\n" "$pct" "[$bar]" "$msg"
+}
+
+detect_pm() {
+  if $IS_TERMUX; then echo "pkg"; return; fi
+  for pm in apt-get dnf yum pacman apk zypper; do
+    command -v "$pm" >/dev/null 2>&1 && { echo "$pm"; return; }
+  done
+  echo "unknown"
+}
+
+install_pkgs() {
+  local pm="$1"; shift
+  local pkgs=("$@")
+  case "$pm" in
+    pkg) run_cmd "pkg update -y >/dev/null 2>&1 || true"; run_cmd "pkg install -y ${pkgs[*]} >/dev/null 2>&1 || true" ;;
+    apt-get) run_cmd "$SUDO_CMD apt-get update -y >/dev/null 2>&1 || true"; run_cmd "$SUDO_CMD apt-get install -y ${pkgs[*]} >/dev/null 2>&1 || true" ;;
+    dnf) run_cmd "$SUDO_CMD dnf install -y ${pkgs[*]} >/dev/null 2>&1 || true" ;;
+    yum) run_cmd "$SUDO_CMD yum install -y ${pkgs[*]} >/dev/null 2>&1 || true" ;;
+    pacman) run_cmd "$SUDO_CMD pacman -Sy --noconfirm ${pkgs[*]} >/dev/null 2>&1 || true" ;;
+    apk) run_cmd "$SUDO_CMD apk add --no-cache ${pkgs[*]} >/dev/null 2>&1 || true" ;;
+    zypper) run_cmd "$SUDO_CMD zypper --non-interactive install ${pkgs[*]} >/dev/null 2>&1 || true" ;;
+    *) echo -e "${YELLOW}⚠${NC} No package manager detected. Skipping system deps." ;;
+  esac
+}
+
+configure_us_timezone_install() {
+  local tz="$APP_TIMEZONE"
+  echo -e "${BLUE}[INFO]${NC} Target timezone: $tz"
+  if $IS_TERMUX; then
+    echo -e "${YELLOW}⚠${NC} Termux detected: skipping system timezone change."
+    return 0
+  fi
+  if ! command -v timedatectl >/dev/null 2>&1; then
+    echo -e "${YELLOW}⚠${NC} timedatectl not available. Set timezone manually if needed."
+    return 0
+  fi
+
+  local current_tz
+  current_tz="$(timedatectl show --property=Timezone --value 2>/dev/null || true)"
+  if [[ "$current_tz" == "$tz" ]]; then
+    echo -e "${GREEN}✓${NC} System timezone already in $tz"
+    return 0
+  fi
+
+  if $DRY_RUN; then
+    echo -e "${YELLOW}[DRY-RUN]${NC} ${SUDO_CMD} timedatectl set-timezone $tz"
+    return 0
+  fi
+
+  if ${SUDO_CMD:+$SUDO_CMD }timedatectl set-timezone "$tz" >/dev/null 2>&1; then
+    echo -e "${GREEN}✓${NC} System timezone switched to $tz"
+  else
+    echo -e "${YELLOW}⚠${NC} Could not change system timezone automatically."
+  fi
+}
 
 echo ""
 echo -e "${CYAN}╔══════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║       RECO-TRADING DASHBOARD INSTALLER       ║${NC}"
-echo -e "${CYAN}║    Professional Crypto Trading System         ║${NC}"
+echo -e "${CYAN}║       RECO-TRADING UNIVERSAL INSTALLER       ║${NC}"
 echo -e "${CYAN}╚══════════════════════════════════════════════╝${NC}"
-echo ""
-echo -e "${BLUE}[INFO]${NC} Project directory: $ROOT_DIR"
+echo -e "${BLUE}[INFO]${NC} Path: $ROOT_DIR"
+echo -e "${BLUE}[INFO]${NC} Root: $IS_ROOT | Termux: $IS_TERMUX | DryRun: $DRY_RUN"
 
-# Parse flags
-FORCE=false
-if [[ "$1" == "--force" ]] || [[ "$1" == "-f" ]]; then
-  FORCE=true
-  echo -e "${YELLOW}  ⚠ Force mode enabled — will rebuild everything${NC}"
-fi
+PM="$(detect_pm)"
+echo -e "${BLUE}[INFO]${NC} Package manager: $PM"
 
-# ---- Check OS ----
-OS=$(uname -s 2>/dev/null || echo "unknown")
-echo -e "${BLUE}[INFO]${NC} Operating system: $OS"
+TOTAL=10
+progress 1 $TOTAL "Installing system dependencies"
+install_pkgs "$PM" curl git openssl ca-certificates lsof procps
 
-SKIP_COUNT=0
-INSTALL_COUNT=0
+progress 2 $TOTAL "Prerequisite diagnostics"
+for cmd in bash curl git; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo -e "${YELLOW}⚠${NC} Missing command: $cmd"
+  fi
+done
 
-# ---- Helper: mark step as skipped ----
-skip_step() {
-  SKIP_COUNT=$((SKIP_COUNT + 1))
-  echo -e "${GREEN}  ✓${NC} $1 (already installed)"
-}
+progress 3 $TOTAL "Timezone alignment (US)"
+configure_us_timezone_install
 
-# ---- Helper: mark step as installing ----
-install_step() {
-  INSTALL_COUNT=$((INSTALL_COUNT + 1))
-  echo -e "${BLUE}  →${NC} $1"
-}
-
-# ---- Step 1: Install Bun ----
-echo ""
-echo -e "${YELLOW}[1/6]${NC} Checking Bun runtime..."
-if command -v bun &>/dev/null; then
-  BUN_VERSION=$(bun --version)
-  skip_step "Bun v${BUN_VERSION}"
-else
-  install_step "Installing Bun..."
-  curl -fsSL https://bun.sh/install | bash
-  export PATH="$HOME/.bun/bin:$PATH"
-  # Also add to profile if not there
-  for PROFILE_FILE in "$HOME/.bashrc" "$HOME/.profile" "$HOME/.zshrc"; do
-    if [ -f "$PROFILE_FILE" ] && ! grep -q ".bun/bin" "$PROFILE_FILE" 2>/dev/null; then
-      echo 'export PATH="$HOME/.bun/bin:$PATH"' >> "$PROFILE_FILE"
+progress 4 $TOTAL "Ensuring Bun runtime"
+if ! command -v bun >/dev/null 2>&1; then
+  run_cmd "curl -fsSL https://bun.sh/install | bash"
+  if ! $DRY_RUN; then export PATH="$HOME/.bun/bin:$PATH"; fi
+  for PROFILE in "$HOME/.bashrc" "$HOME/.profile" "$HOME/.zshrc"; do
+    [[ -f "$PROFILE" ]] || continue
+    if ! grep -q '.bun/bin' "$PROFILE" 2>/dev/null; then
+      run_cmd "echo 'export PATH=\"$HOME/.bun/bin:$PATH\"' >> $PROFILE"
     fi
   done
-  echo -e "${GREEN}  ✓${NC} Bun installed: $(bun --version)"
 fi
+export PATH="$HOME/.bun/bin:$PATH"
+command -v bun >/dev/null 2>&1 && echo -e "${GREEN}✓${NC} Bun: $(bun --version)" || echo -e "${YELLOW}⚠${NC} Bun not yet available (dry-run or install issue)."
 
-# ---- Step 2: Create / fix .env ----
-echo ""
-echo -e "${YELLOW}[2/6]${NC} Configuring environment (.env)..."
-
-# Database path: dynamically computed from where the script is right now.
-# This always points to <project>/data/reco_trading.db no matter
-# where the folder is located on any system.
+progress 5 $TOTAL "Preparing runtime directories"
 DB_DIR="$ROOT_DIR/data"
+LOG_DIR="$ROOT_DIR/logs"
+run_cmd "mkdir -p $DB_DIR $LOG_DIR"
 DB_FILE="$DB_DIR/reco_trading.db"
 DB_URL="file:$DB_FILE"
 
-if [ -f .env ]; then
-  skip_step ".env already exists (API keys preserved)"
-  echo -e "${BLUE}  →${NC} To regenerate: delete .env and run install.sh again"
-
-  # ---- Auto-fix DATABASE_URL to match current location ----
-  CURRENT_DB_URL=$(grep -E '^DATABASE_URL=' .env 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"' | tr -d "'")
-  CURRENT_DB_PATH="${CURRENT_DB_URL#file:}"
-
-  NEED_FIX=false
-  if [ -z "$CURRENT_DB_URL" ]; then
-    NEED_FIX=true
-    echo -e "${YELLOW}  ⚠${NC} DATABASE_URL missing from .env"
-  elif [ "$CURRENT_DB_PATH" != "$DB_FILE" ]; then
-    NEED_FIX=true
-    echo -e "${YELLOW}  ⚠${NC} DATABASE_URL points to: $CURRENT_DB_PATH"
-    echo -e "${YELLOW}  ⚠${NC} Correcting to: $DB_FILE"
-  fi
-
-  if [ "$NEED_FIX" = true ]; then
-    if grep -q '^DATABASE_URL=' .env 2>/dev/null; then
-      sed -i "s|^DATABASE_URL=.*|DATABASE_URL=$DB_URL|" .env
-    else
-      echo "DATABASE_URL=$DB_URL" >> .env
-    fi
-    echo -e "${GREEN}  ✓${NC} DATABASE_URL corrected to: $DB_URL"
-  fi
-else
-  install_step "Creating .env file..."
-
-  # Generate random session secret
-  SESSION_SECRET=$(openssl rand -hex 32 2>/dev/null || echo "reco-trading-secret-change-me-$(date +%s)")
-
-  cat > .env << ENVFILE
-# ============================================
-# RECO-TRADING - Environment Configuration
-# ============================================
-# Generated by install.sh on $(date '+%Y-%m-%d %H:%M:%S')
-# Path auto-detected: $ROOT_DIR
-# ============================================
-
-# ---- DATABASE ----
-# SQLite database (auto-detected path for this system)
+progress 6 $TOTAL "Generating .env (OANDA-first)"
+if [[ ! -f .env || "$FORCE" == true ]]; then
+  SESSION_SECRET=$(openssl rand -hex 32 2>/dev/null || echo "reco-secret-$(date +%s)")
+  if $DRY_RUN; then
+    echo -e "${YELLOW}[DRY-RUN]${NC} Would create .env with OANDA defaults"
+  else
+    cat > .env <<ENVFILE
 DATABASE_URL=$DB_URL
-
-# ---- BINANCE API ----
-# IMPORTANT: Enter your Binance API keys here
-# Get them from: https://www.binance.com/en/my/settings/api-management
-BINANCE_API_KEY=your_binance_api_key_here
-BINANCE_API_SECRET=your_binance_api_secret_here
-
-# ---- TRADING CONFIG ----
-TRADING_PAIR=BTC/USDT
+OANDA_ACCOUNT_ID=
+OANDA_API_TOKEN=
+OANDA_IS_DEMO=true
+TRADING_SYMBOL=XAU_USD
+TRADING_PAIRS=XAU_USD,EUR_USD,GBP_USD,USD_JPY,WTI_USD,NAS100_USD
 PRIMARY_TIMEFRAME=5m
-CONFIRMATION_TIMEFRAME=15m
-# Use testnet (true = testnet with fake money, false = real money!)
-BINANCE_TESTNET=true
-
-# ---- RISK MANAGEMENT ----
+CONFIRM_LIVE_TRADING=false
 RISK_PER_TRADE=1.0
 MAX_DAILY_LOSS=3.0
 MAX_DRAWDOWN=10.0
 MAX_TRADES_PER_DAY=120
 MIN_CONFIDENCE=0.62
-
-# ---- CAPITAL ----
 INITIAL_CAPITAL=1000.0
 CAPITAL_MODE=MEDIUM
-
-# ---- DASHBOARD ----
 DASHBOARD_PORT=3000
-DASHBOARD_AUTH_ENABLED=false
-DASHBOARD_USERNAME=admin
-DASHBOARD_PASSWORD=reco_trading_2024
-
-# ---- SESSION ----
+APP_TIMEZONE=$APP_TIMEZONE
 NEXTAUTH_SECRET=$SESSION_SECRET
 NEXTAUTH_URL=http://localhost:3000
-
-# ---- FLASK BOT (optional) ----
-BOT_API_URL=http://localhost:9000
 ENVFILE
-
-  chmod 600 .env
-  echo -e "${GREEN}  ✓${NC} .env created successfully"
-  echo -e "${BLUE}  →${NC} Edit .env and add your Binance API keys before trading!"
-fi
-
-# ---- Create local directories ----
-echo -e "${BLUE}  →${NC} Ensuring local directories..."
-mkdir -p "$DB_DIR"
-mkdir -p "$ROOT_DIR/logs"
-echo -e "${GREEN}  ✓${NC} Directories ready: data/ logs/"
-
-# ---- Step 3: Install Node.js dependencies ----
-echo ""
-echo -e "${YELLOW}[3/6]${NC} Installing dependencies..."
-
-if [ -d "node_modules" ] && ([ -f "bun.lock" ] || [ -f "bun.lockb" ]) && [ "$FORCE" != "true" ]; then
-  # Check if lockfile is newer than node_modules
-  LOCK_FILE="bun.lock"
-  [ ! -f "$LOCK_FILE" ] && LOCK_FILE="bun.lockb"
-  LOCK_MTIME=$(stat -c %Y "$LOCK_FILE" 2>/dev/null || stat -f %m "$LOCK_FILE" 2>/dev/null || echo 0)
-  NM_MTIME=$(stat -c %Y node_modules 2>/dev/null || stat -f %m node_modules 2>/dev/null || echo 0)
-
-  if [ "$NM_MTIME" -gt "$LOCK_MTIME" ] && [ "$NM_MTIME" -ne 0 ]; then
-    skip_step "node_modules up to date"
-  else
-    echo -e "${BLUE}  →${NC} Dependencies may be outdated, updating..."
-    bun install
-    echo -e "${GREEN}  ✓${NC} Dependencies updated"
+    chmod 600 .env
   fi
-elif [ "$FORCE" = "true" ]; then
-  install_step "Force reinstalling all dependencies..."
-  bun install
-  echo -e "${GREEN}  ✓${NC} Dependencies installed"
 else
-  install_step "Installing dependencies (this may take a minute)..."
-  bun install
-  echo -e "${GREEN}  ✓${NC} Dependencies installed"
+  run_cmd "grep -q '^DATABASE_URL=' .env && sed -i 's|^DATABASE_URL=.*|DATABASE_URL=$DB_URL|' .env || echo 'DATABASE_URL=$DB_URL' >> .env"
+  run_cmd "grep -q '^TRADING_SYMBOL=' .env || echo 'TRADING_SYMBOL=XAU_USD' >> .env"
+  run_cmd "grep -q '^OANDA_IS_DEMO=' .env || echo 'OANDA_IS_DEMO=true' >> .env"
+  run_cmd "grep -q '^APP_TIMEZONE=' .env || echo 'APP_TIMEZONE=$APP_TIMEZONE' >> .env"
 fi
 
-# ---- Step 4: Setup Prisma + Database ----
-echo ""
-echo -e "${YELLOW}[4/6]${NC} Setting up database..."
+progress 7 $TOTAL "Installing JS dependencies"
+run_cmd "bun install"
 
-# Ensure data directory exists before Prisma operations
-mkdir -p "$DB_DIR"
-
-# Override DATABASE_URL to match current location (even if .env is stale)
+progress 8 $TOTAL "Prisma generate"
 export DATABASE_URL="$DB_URL"
+run_cmd "bunx prisma generate >/dev/null"
 
-# Generate Prisma client
-echo -e "${BLUE}  →${NC} Generating Prisma client..."
-bunx prisma generate 2>&1 | tail -1
-echo -e "${GREEN}  ✓${NC} Prisma client generated"
-
-# Push schema to database (idempotent — safe to run multiple times)
-if [ "$FORCE" = "true" ]; then
-  echo -e "${BLUE}  →${NC} Force resetting database..."
-  bunx prisma db push --force-reset --skip-generate 2>&1 | tail -1
+progress 9 $TOTAL "Prisma schema sync"
+if [[ "$FORCE" == true ]]; then
+  run_cmd "bunx prisma db push --force-reset --skip-generate >/dev/null"
 else
-  echo -e "${BLUE}  →${NC} Syncing database schema..."
-  bunx prisma db push --skip-generate 2>&1 | tail -1
-fi
-echo -e "${GREEN}  ✓${NC} Database configured"
-
-# ---- Step 5: Build the application ----
-echo ""
-echo -e "${YELLOW}[5/6]${NC} Building application..."
-
-# Always clean build caches and lock files to prevent stale type errors
-echo -e "${BLUE}  →${NC} Cleaning build caches..."
-rm -rf .next/lock .next/cache .next 2>/dev/null || true
-
-if [ "$FORCE" = "true" ]; then
-  install_step "Force rebuild..."
-  bun run build
-  echo -e "${GREEN}  ✓${NC} Build complete"
-else
-  install_step "Building application..."
-  bun run build
-  echo -e "${GREEN}  ✓${NC} Build complete"
+  run_cmd "bunx prisma db push --skip-generate >/dev/null"
 fi
 
-# ---- Step 6: Final checks ----
-echo ""
-echo -e "${YELLOW}[6/6]${NC} Final checks..."
-mkdir -p "$DB_DIR"
-mkdir -p "$ROOT_DIR/logs"
-
-# Verify database file was created
-if [ -f "$DB_FILE" ]; then
-  DB_SIZE=$(du -h "$DB_FILE" 2>/dev/null | cut -f1)
-  echo -e "${GREEN}  ✓${NC} Database ready: data/reco_trading.db ($DB_SIZE)"
-else
-  echo -e "${YELLOW}  ⚠${NC} Database file not found, but will be created on first run"
+progress 10 $TOTAL "Build smoke verification"
+run_cmd "rm -rf .next/lock .next/cache 2>/dev/null || true"
+if ! $DRY_RUN; then
+  if ! bun run build >/dev/null 2>&1; then
+    echo -e "${YELLOW}⚠${NC} Build failed in this environment (run 'bun run build' manually for details)."
+  fi
 fi
 
-echo -e "${GREEN}  ✓${NC} All runtime directories ready"
-
-# ---- Summary ----
 echo ""
-echo -e "${CYAN}══════════════════════════════════════════════${NC}"
-echo -e "${GREEN}  ✓ INSTALLATION COMPLETE!${NC}"
-echo -e "${CYAN}══════════════════════════════════════════════${NC}"
-echo ""
-echo -e "  Project path:     ${BLUE}$ROOT_DIR${NC}"
-echo -e "  Database:         ${BLUE}data/reco_trading.db${NC}"
-echo -e "  Steps skipped:    ${GREEN}${SKIP_COUNT}${NC}"
-echo -e "  Steps executed:   ${BLUE}${INSTALL_COUNT}${NC}"
-echo ""
-echo -e "${YELLOW}NEXT STEPS:${NC}"
-echo ""
-echo -e "  1. ${BLUE}Edit your API keys:${NC}"
-echo -e "     nano .env"
-echo -e "     Set BINANCE_API_KEY and BINANCE_API_SECRET"
-echo ""
-echo -e "  2. ${BLUE}Start the dashboard (development):${NC}"
-echo -e "     ./dev.sh"
-echo ""
-echo -e "  3. ${BLUE}Start the dashboard (production):${NC}"
-echo -e "     ./run.sh"
-echo ""
-echo -e "  4. ${BLUE}Access the dashboard:${NC}"
-echo -e "     http://localhost:${DASHBOARD_PORT:-3000}"
-echo ""
-echo -e "  ${BLUE}Tip:${NC} Run ${YELLOW}./install.sh --force${NC} to force rebuild everything"
-echo ""
-echo -e "${RED}⚠  WARNING:${NC}"
-echo -e "  - BINANCE_TESTNET=true (using testnet, no real money)"
-echo -e "  - Set to 'false' ONLY when you are ready to trade for real"
-echo -e "  - Always test with testnet first!"
-echo ""
+echo -e "${GREEN}✓ Installation flow completed${NC}"
+echo -e "${BLUE}Next steps:${NC}"
+echo "  1) Edit .env with OANDA_ACCOUNT_ID and OANDA_API_TOKEN"
+echo "  2) Verify APP_TIMEZONE in .env (default: $APP_TIMEZONE)"
+echo "  3) Start with: ./run.sh --daemon=auto"

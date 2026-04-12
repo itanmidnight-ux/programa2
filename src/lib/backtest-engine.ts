@@ -1,11 +1,11 @@
 // ============================================
 // RECO-TRADING - Backtesting Engine v1.0
 // ============================================
-// Backtesting completo con datos históricos de Binance
+// Backtesting completo con datos históricos del broker configurado
 // Simula execution reales con delays, slippage y fees
 // ============================================
 
-import { getKlines } from './binance';
+import { getKlines } from './broker-manager';
 import { calculateRSI, calculateEMA, calculateATR, MarketRegime, detectMarketRegime, generateScalpingSignal, ScalpingSignal, predictProfitability } from './scalping-engine';
 
 const DEFAULT_CONFIG = {
@@ -91,7 +91,7 @@ async function runBacktestForPair(
   config: BacktestConfig,
   state: BacktestState
 ): Promise<void> {
-  const candles = await getKlines(pair, config.timeframe, 500, false);
+  const candles = await getKlines(pair, config.timeframe, 500);
   
   if (candles.length < 100) {
     console.warn(`[BACKTEST] Insufficient data for ${pair}`);
@@ -291,7 +291,7 @@ export async function runBacktest(config: Partial<BacktestConfig> = {}): Promise
     timeframe: config.timeframe || '5m',
     startDate: config.startDate || '',
     endDate: config.endDate || '',
-    pairs: config.pairs || ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'],
+    pairs: config.pairs || ['XAU_USD', 'EUR_USD', 'NAS100_USD'],
     riskPerTrade: config.riskPerTrade || 1.0,
     makerFee: config.makerFee || 0.0002,
     takerFee: config.takerFee || 0.0004,

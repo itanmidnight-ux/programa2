@@ -1,131 +1,77 @@
 // ============================================
-// /api/config/mode - Switch Account Mode
-// ============================================
-// GET  /api/config/mode  - Get current mode (testnet/real)
-// POST /api/config/mode  - Switch between testnet and real
-// POST /api/config/mode/credentials - Update credentials
+// /api/config/mode - Switch OANDA account mode
 // ============================================
 
 import { NextResponse } from "next/server";
-import { 
-  isTestnetMode, 
-  setAccountMode, 
-  reconnectWebSocket, 
-  getCredentialsForMode,
-  setCredentials,
-  validateCredentials,
-  hasCredentials 
-} from "@/lib/binance";
-import { setSetting, getSetting } from "@/lib/settings-manager";
+import {
+  getOandaCredentials,
+  setOandaCredentials,
+  saveOandaCredentials,
+  validateOandaCredentials,
+  hasOandaCredentials,
+} from "@/lib/oanda-credentials";
+import { setSetting } from "@/lib/settings-manager";
 
-// ---- GET: Return current account mode ----
 export async function GET() {
   try {
-    const testnet = isTestnetMode();
-    const creds = getCredentialsForMode(testnet);
-    const otherCreds = getCredentialsForMode(!testnet);
-    
+    const creds = getOandaCredentials();
+    const isDemo = creds.isDemo;
+
     return NextResponse.json({
-      mode: testnet ? "testnet" : "real",
-      testnet,
-      baseUrl: testnet ? "https://testnet.binance.vision" : "https://api.binance.com",
-      wsUrl: testnet ? "wss://testnet.binance.vision/ws" : "wss://stream.binance.com:9443/ws",
-      message: testnet
-        ? "Running on Binance SPOT Testnet (testnet.binance.vision) - Capital ficticio"
-        : "Running on Binance Real Account (api.binance.com) - REAL MONEY",
-      // Credential status for each mode (don't expose secrets)
+      mode: isDemo ? "demo" : "live",
+      demo: isDemo,
+      baseUrl: isDemo ? "https://api-fxpractice.oanda.com" : "https://api-fxtrade.oanda.com",
+      message: isDemo
+        ? "Running on OANDA Demo"
+        : "Running on OANDA Live (REAL MONEY)",
       credentialsStatus: {
-        testnet: {
-          configured: hasCredentials(true),
-        },
-        real: {
-          configured: hasCredentials(false),
-        },
+        configured: hasOandaCredentials(),
       },
-      // Credential status per mode (no secrets exposed)
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
 
-// ---- POST: Switch account mode ----
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { testnet } = body;
+    const demo = typeof body.demo === "boolean" ? body.demo : body.testnet;
 
-    if (typeof testnet !== "boolean") {
+    if (typeof demo !== "boolean") {
       return NextResponse.json(
-        { error: "testnet boolean field is required" },
+        { error: "demo boolean field is required" },
         { status: 400 }
       );
     }
 
-    const previousMode = isTestnetMode();
-
-    // If same mode, nothing to do
-    if (previousMode === testnet) {
-      return NextResponse.json({
-        success: true,
-        mode: testnet ? "testnet" : "real",
-        changed: false,
-        message: `Already in ${testnet ? "testnet" : "real"} mode`,
-      });
+    const creds = getOandaCredentials();
+    if (!creds.accountId || !creds.apiToken) {
+      return NextResponse.json(
+        { success: false, error: "No OANDA credentials configured", requiresCredentials: true },
+        { status: 400 }
+      );
     }
 
-    // Check if credentials are configured for the target mode
-    if (!hasCredentials(testnet)) {
-      return NextResponse.json({
-        success: false,
-        mode: previousMode ? "testnet" : "real",
-        changed: false,
-        error: `No API credentials configured for ${testnet ? "TESTNET" : "REAL"} mode. Please add your ${testnet ? "testnet" : "real"} API keys in Settings first.`,
-        requiresCredentials: true,
-        targetMode: testnet ? "testnet" : "real",
-      });
-    }
-
-    // Validate credentials for the target mode before switching
-    const creds = getCredentialsForMode(testnet);
-    const validation = await validateCredentials(creds.apiKey, creds.apiSecret, testnet);
-    
+    const validation = await validateOandaCredentials(creds.accountId, creds.apiToken, demo);
     if (!validation.valid) {
-      return NextResponse.json({
-        success: false,
-        mode: previousMode ? "testnet" : "real",
-        changed: false,
-        error: `Credential validation failed for ${testnet ? "testnet" : "real"} mode: ${validation.error}`,
-        validationError: validation.error,
-      });
+      return NextResponse.json(
+        { success: false, error: `Credential validation failed: ${validation.message}` },
+        { status: 400 }
+      );
     }
 
-    // Switch the mode globally
-    setAccountMode(testnet);
-
-    // PERSIST the mode to database for restart persistence
-    await setSetting('account_mode', testnet ? 'testnet' : 'real', 'general');
-    console.log(`[MODE] Saved account mode to database: ${testnet ? 'testnet' : 'real'}`);
-
-    // Reconnect WebSocket to the new endpoint
-    reconnectWebSocket(testnet);
-
-    // Reload OANDA credentials for new mode
-    try {
-      const { loadOandaCredentials } = await import("@/lib/oanda-credentials");
-      await loadOandaCredentials();
-    } catch {
-      // Engine may not be initialized, that's ok
-    }
+    setOandaCredentials(creds.accountId, creds.apiToken, demo);
+    await saveOandaCredentials();
+    await setSetting("oanda_is_demo", demo ? "true" : "false", "api");
 
     return NextResponse.json({
       success: true,
-      mode: testnet ? "demo" : "live",
-      changed: true,
-      previousMode: previousMode ? "demo" : "live",
-      message: testnet
+      mode: demo ? "demo" : "live",
+      message: demo
         ? "Switched to OANDA Demo account"
         : "Switched to OANDA Live account - REAL MONEY",
+      balance: validation.balance ?? null,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

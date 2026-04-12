@@ -18,7 +18,7 @@ import { MLPanel } from "@/components/dashboard/ml-panel";
 import { SettingsPanel } from "@/components/dashboard/settings-panel";
 import { SmartStopsPanel } from "@/components/dashboard/smart-stop-panel";
 import { LogsPanel } from "@/components/dashboard/logs-panel";
-import { formatPair } from "@/lib/binance";
+import { formatPair } from "@/lib/format-utils";
 
 function DashboardContent() {
   const store = useTradingStore();

@@ -28,13 +28,13 @@ export interface SettingUpdate {
 
 const DEFAULT_SETTINGS: SettingUpdate[] = [
   // API Settings
-  { key: 'api_key', value: '', section: 'api' },
-  { key: 'api_secret', value: '', section: 'api' },
-  { key: 'testnet', value: 'true', section: 'api' },
-  { key: 'confirm_mainnet', value: 'true', section: 'api' },
+  { key: 'oanda_account_id', value: '', section: 'api' },
+  { key: 'oanda_api_token', value: '', section: 'api' },
+  { key: 'oanda_is_demo', value: 'true', section: 'api' },
+  { key: 'confirm_live_trading', value: 'false', section: 'api' },
 
   // Trading Settings
-  { key: 'symbol', value: 'BTC/USDT', section: 'trading' },
+  { key: 'symbol', value: 'XAU_USD', section: 'trading' },
   { key: 'timeframe', value: '5m', section: 'trading' },
   { key: 'loop_sleep', value: '5', section: 'trading' },
   { key: 'history_limit', value: '500', section: 'trading' },

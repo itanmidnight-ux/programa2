@@ -117,11 +117,10 @@ export async function GET() {
     // Get analysis data for market-condition-based metrics
     let analysis: any = null;
     try {
-      const pair = process.env.TRADING_PAIR || "BTCUSDT";
-      const { getKlines, isTestnetMode } = await import("@/lib/binance");
-      const testnet = isTestnetMode();
+      const pair = process.env.TRADING_SYMBOL || "XAU_USD";
+      const { getKlines } = await import("@/lib/broker-manager");
       const { analyzeMarket } = await import("@/lib/analysis-engine");
-      const klines = await getKlines(pair, "5m", 100, testnet);
+      const klines = await getKlines(pair, "5m", 100);
       analysis = analyzeMarket(klines, [], [], []);
     } catch { /* analysis not available */ }
 

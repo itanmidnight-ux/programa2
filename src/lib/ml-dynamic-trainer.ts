@@ -1,11 +1,11 @@
 // ============================================
 // RECO-TRADING - ML Dynamic Trainer v1.0
 // ============================================
-// Descarga datos de Binance y entrena el modelo ML en tiempo real
+// Descarga datos del broker y entrena el modelo ML en tiempo real
 // Soporta entrenamiento incremental y re-entrenamiento completo
 // ============================================
 
-import { getKlines, POPULAR_PAIRS } from './binance';
+import { getKlines } from './broker-manager';
 import { Candle } from './analysis-engine';
 import { calculateRSI, calculateEMA, calculateATR, MarketRegime } from './scalping-engine';
 
@@ -59,6 +59,7 @@ const DEFAULT_WEIGHTS: MLWeights = {
 
 const TRAINED_WEIGHTS_KEY = 'reco_ml_trained_weights';
 const TRAINING_STATS_KEY = 'reco_ml_training_stats';
+const POPULAR_PAIRS = ['XAU_USD', 'XAG_USD', 'EUR_USD', 'GBP_USD', 'USD_JPY', 'WTI_USD', 'US30_USD', 'NAS100_USD'];
 
 let currentWeights: MLWeights = { ...DEFAULT_WEIGHTS };
 let isTraining = false;
@@ -100,7 +101,7 @@ async function fetchHistoricalData(
   candles: number
 ): Promise<Candle[]> {
   try {
-    const data = await getKlines(pair, timeframe, candles, false);
+    const data = await getKlines(pair, timeframe, candles);
     return data.map(k => ({
       time: k.time,
       open: k.open,

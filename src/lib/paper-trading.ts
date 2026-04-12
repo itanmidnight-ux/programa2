@@ -5,7 +5,7 @@
 // Mantiene estado de portfolio virtual y ejecuta señales
 // ============================================
 
-import { getKlines, getTickerPrice, getOrderBook, get24hTicker } from './binance';
+import { getKlines, getTickerPrice, getOrderBook } from './broker-manager';
 import { generateScalpingSignal, calculateRSI, calculateEMA, calculateATR, detectMarketRegime, MarketRegime } from './scalping-engine';
 
 export interface PaperPosition {
@@ -237,7 +237,7 @@ function getCurrentPriceSync(pair: string): number {
 export async function updateMarketPrices(pairs: string[]): Promise<void> {
   for (const pair of pairs) {
     try {
-      const price = await getTickerPrice(pair, false);
+      const price = await getTickerPrice(pair);
       lastPrices[pair] = price;
     } catch {
       // Keep previous price on error
@@ -344,7 +344,7 @@ export async function tick(pairs: string[]): Promise<{
     if (account.openPositions >= config.maxPositions) break;
     
     try {
-      const candles = await getKlines(pair, '5m', 50, false);
+      const candles = await getKlines(pair, '5m', 50);
       if (candles.length < 30) continue;
       
       const analysis = analyzeForPaper(candles);

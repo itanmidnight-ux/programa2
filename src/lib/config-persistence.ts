@@ -419,7 +419,7 @@ export async function loadEngineState(): Promise<EngineStateData> {
       lastLoopAt: null,
       lastSignal: null,
       lastError: null,
-      currentPair: 'BTC/USDT',
+      currentPair: 'XAU_USD',
       currentStrategy: 'default',
       extraState: {},
     };

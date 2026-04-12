@@ -220,20 +220,14 @@ export async function GET(request: Request) {
       console.error("[SNAPSHOT] Failed to fetch account data:", err instanceof Error ? err.message : err);
     }
 
-    // Balance calculations
-    const usdtBalance = accountData
-      ? accountData.balances?.find((b: { asset: string }) => b.asset === "USDT")
-      : null;
-    const btcBalance = accountData
-      ? accountData.balances?.find((b: { asset: string }) => b.asset === pair.replace("USDT", ""))
-      : null;
-    const balance = usdtBalance ? parseFloat(usdtBalance.free) + parseFloat(usdtBalance.locked) : 0;
-    const cryptoQty = btcBalance ? parseFloat(btcBalance.free) + parseFloat(btcBalance.locked) : 0;
+    // Balance calculations (OANDA account schema via broker-manager)
+    const balance = accountData?.balance || 0;
+    const equityFromBroker = accountData?.equity || balance;
     // For DB positions (SPOT trading), use unrealizedPnl field
     const unrealizedPnl = positions.length > 0
       ? positions.reduce((sum: number, p: any) => sum + parseFloat(p.unrealizedPnl || 0), 0)
       : 0;
-    const equity = balance + cryptoQty * price + unrealizedPnl;
+    const equity = equityFromBroker + unrealizedPnl;
 
     // Open position info (from DB - uses 'side', 'quantity', 'entryPrice' fields)
     const openPosition = positions.length > 0 ? positions[0] : null;
@@ -486,7 +480,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       mode: "OFFLINE",
       status: "ERROR",
-      pair: "BTC/USDT",
+      pair: "XAU/USD",
       price: 0,
       signal: "HOLD",
       confidence: 0,

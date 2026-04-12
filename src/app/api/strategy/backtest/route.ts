@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { runBacktest, saveBacktestResult } from '@/lib/ai/backtest-engine';
 
-const VALID_PAIRS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'DOGEUSDT', 'AVAXUSDT', 'DOTUSDT', 'LINKUSDT', 'MATICUSDT', 'LTCUSDT', 'UNIUSDT', 'NEARUSDT', 'ATOMUSDT', 'FILUSDT', 'INJUSDT', 'APTUSDT', 'ARBUSDT', 'OPUSDT', 'BNBUSDT'];
+const VALID_PAIRS = ['XAU_USD', 'XAG_USD', 'EUR_USD', 'GBP_USD', 'USD_JPY', 'AUD_USD', 'USD_CHF', 'WTI_USD', 'BCO_USD', 'US30_USD', 'SPX500_USD', 'NAS100_USD'];
 const VALID_TIMEFRAMES = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '12h', '1d'];
 
 /**

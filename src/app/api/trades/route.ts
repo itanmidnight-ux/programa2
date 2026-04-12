@@ -35,7 +35,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const limitRaw = parseInt(searchParams.get("limit") || "200");
     const status = searchParams.get("status") || "";
-    const pair = sanitizeString(searchParams.get("pair") || "BTCUSDT");
+    const pair = sanitizeString(searchParams.get("pair") || "XAU_USD");
 
     // Validate limit
     const limit = Math.min(Math.max(limitRaw, MIN_LIMIT), MAX_LIMIT);

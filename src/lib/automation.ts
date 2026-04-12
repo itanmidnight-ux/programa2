@@ -218,7 +218,7 @@ export class TradingAutomation {
 
     return {
       running: this.isRunning && !this.isPaused,
-      pair: this.config.interval.toString(),
+      pair: engineStatus.pair,
       testnet: this.executionEngine.getStatus().testnet,
       interval: this.config.interval,
       lastTickTime: this.totalTicks > 0 ? now : 0,

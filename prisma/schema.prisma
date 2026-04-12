@@ -14,7 +14,7 @@ datasource db {
 // ---------- Trading Configuration ----------
 model TradingConfig {
   id                String   @id @default("main")
-  pair              String   @default("BTC/USDT")
+  pair              String   @default("XAU_USD")
   timeframe         String   @default("5m")
   riskPerTrade      Float    @default(1.0)
   maxDailyLoss      Float    @default(3.0)
@@ -251,7 +251,7 @@ model EngineState {
   lastLoopAt      DateTime?
   lastSignal      String?
   lastError       String?
-  currentPair     String   @default("BTC/USDT")
+  currentPair     String   @default("XAU_USD")
   currentStrategy String   @default("default")
   extraState      String   @default("{}")        // JSON for extensible state
   createdAt       DateTime @default(now())

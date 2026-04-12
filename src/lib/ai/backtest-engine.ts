@@ -5,7 +5,7 @@
 // Simulates realistic execution with fees, slippage, etc.
 
 import { db } from '@/lib/db';
-import { getKlines } from '@/lib/binance';
+import { getKlines } from '@/lib/broker-manager';
 
 // ============================================
 // TYPES & INTERFACES

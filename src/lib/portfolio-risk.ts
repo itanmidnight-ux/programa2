@@ -5,7 +5,23 @@
 // Incluye VaR, drawdown, correlación y límites de exposición
 // ============================================
 
-import { getAllPrices, POPULAR_PAIRS } from './binance';
+import { getTickerPrice } from './broker-manager';
+
+const POPULAR_PAIRS = ['XAU_USD', 'XAG_USD', 'EUR_USD', 'GBP_USD', 'USD_JPY', 'WTI_USD', 'US30_USD', 'NAS100_USD'];
+
+async function getAllPrices(): Promise<Record<string, { price: number; change24h: number }>> {
+  const pairs = [...POPULAR_PAIRS];
+  const result: Record<string, { price: number; change24h: number }> = {};
+  await Promise.all(pairs.map(async (symbol) => {
+    try {
+      const price = await getTickerPrice(symbol);
+      result[symbol] = { price: price || 0, change24h: 0 };
+    } catch {
+      result[symbol] = { price: 0, change24h: 0 };
+    }
+  }));
+  return result;
+}
 
 export interface Position {
   symbol: string;
@@ -236,7 +252,7 @@ export async function getAllocationRecommendations(
   currentPositions: Position[],
   riskLevel: 'conservative' | 'moderate' | 'aggressive' = 'moderate'
 ): Promise<AllocationRecommendation[]> {
-  const prices = await getAllPrices(false);
+  const prices = await getAllPrices();
   const recommendations: AllocationRecommendation[] = [];
   
   const maxPositions = riskLevel === 'conservative' ? 3 : riskLevel === 'moderate' ? 5 : 8;

@@ -32,7 +32,7 @@ function generateTrades() {
     const qty = randomInRange(0.001, 0.05);
     trades.push({
       id: i + 1,
-      pair: "BTC/USDT",
+      pair: "XAU/USD",
       side,
       entry: +entry.toFixed(2),
       exit: +exit.toFixed(2),
@@ -55,7 +55,7 @@ export function generateSnapshot() {
   // This is only used as a last-resort fallback; real API data should always be preferred.
   return {
     status: "OFFLINE",
-    pair: "BTC/USDT",
+    pair: "XAU/USD",
     price: 0,
     signal: "HOLD",
     confidence: 0,

@@ -7,7 +7,10 @@
 
 import { NextResponse } from "next/server";
 import { multiPairManager } from "@/lib/multi-pair-manager";
-import { formatPair, unformatPair, DEFAULT_PAIRS, POPULAR_PAIRS } from "@/lib/binance";
+import { formatPair, unformatPair } from "@/lib/format-utils";
+
+const DEFAULT_PAIRS = ["XAU_USD", "EUR_USD", "GBP_USD", "USD_JPY", "WTI_USD", "US30_USD"];
+const POPULAR_PAIRS = ["XAU_USD", "EUR_USD", "NAS100_USD", "SPX500_USD", "WTI_USD"];
 
 export async function GET() {
   try {
@@ -21,7 +24,7 @@ export async function GET() {
     });
   } catch (error: any) {
     return NextResponse.json(
-      { error: error.message, pairs: [], activePair: "BTCUSDT" },
+      { error: error.message, pairs: [], activePair: "XAU_USD" },
       { status: 500 }
     );
   }

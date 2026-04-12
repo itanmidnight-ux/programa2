@@ -1,26 +1,26 @@
 // ============================================
 // /api/pairs/candles - Get candles for specific pair
 // ============================================
-// GET /api/pairs/candles?symbol=BTCUSDT&interval=5m&limit=200
+// GET /api/pairs/candles?symbol=XAU_USD&interval=5m&limit=200
 // Returns candlestick data for the requested pair
-// Includes fallback: if testnet fails, tries production
-// (klines are public data, same on both endpoints)
+// Uses broker-manager unified market data
 // ============================================
 
 import { NextResponse } from "next/server";
-import { getKlines, isTestnetMode } from "@/lib/binance";
+import { getKlines } from "@/lib/broker-manager";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const symbol = searchParams.get("symbol")?.replace(/[^A-Za-z0-9]/g, "") || "BTCUSDT";
+  const symbol = (searchParams.get("symbol") || "XAU_USD")
+    .replace("/", "_")
+    .replace(/[^A-Za-z0-9_]/g, "")
+    .toUpperCase();
   const interval = searchParams.get("interval") || "5m";
   const validIntervals = ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "3d", "1w", "1M"];
   const safeInterval = validIntervals.includes(interval) ? interval : "5m";
   const limit = Math.min(Math.max(parseInt(searchParams.get("limit") || "200"), 1), 1000);
-  const testnet = isTestnetMode();
-
   try {
-    const candles = await getKlines(symbol, safeInterval, limit, testnet);
+    const candles = await getKlines(symbol, safeInterval, limit);
 
     if (!candles || candles.length === 0) {
       return NextResponse.json({
@@ -30,7 +30,7 @@ export async function GET(request: Request) {
         indicators: { ma7: null, ma25: null, ma99: null, rsi: 50, volume_avg: 0 },
         count: 0,
         timestamp: Date.now(),
-        warning: `No candle data returned for ${symbol}. The pair may not be available on ${testnet ? 'testnet' : 'the exchange'}.`,
+        warning: `No candle data returned for ${symbol}. The pair may not be available on the configured broker.`,
       });
     }
 
@@ -68,7 +68,7 @@ export async function GET(request: Request) {
       },
       count: candles.length,
       timestamp: Date.now(),
-      source: testnet ? "testnet" : "production",
+      source: "broker-manager",
     });
   } catch (error: any) {
     const errorMsg = error.message || "Unknown error";
@@ -80,8 +80,8 @@ export async function GET(request: Request) {
         interval,
         candles: [], 
         count: 0,
-        hint: "If this error persists, the pair may not be available on the current exchange mode. Try switching modes in Settings.",
-        mode: testnet ? "testnet" : "production",
+        hint: "If this error persists, confirm OANDA credentials and symbol availability.",
+        mode: "broker",
       },
       { status: 500 }
     );
