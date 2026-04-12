@@ -3,21 +3,22 @@
 - Network:       http://0.0.0.0:3000
 
 ✓ Starting...
-✓ Ready in 150ms
+✓ Ready in 614ms
 [SMART-SL] Initialized. Phases: 4, ProfitLocks: 3, Cooldown: 2min
 [ENGINE] Initialized. Symbol: XAU_USD, Broker: oanda, DryRun: false
-2026-04-11T20:14:29.029Z [AUTOMATION][INFO] Automation initialized
+2026-04-11T22:26:35.670Z [AUTOMATION][INFO] Automation initialized
 [MULTI-PAIR] Initialized with 20 pairs. Active: BTCUSDT
 [PARALLEL] Initialized with 1 pairs: BTCUSDT
 [SMART-SL] Initialized. Phases: 4, ProfitLocks: 3, Cooldown: 2min
 [RISK] Configuration loaded from database
+[SMART-SL] Config loaded from DB. Phases: 4, ProfitLocks: 3
 [STOP-TRADE] Configuration loaded from database
 [STOP-TRADE] ✅ All blocking checks disabled - trades will NOT be blocked
-[OANDA-CRED] No credentials found
-2026-04-11T20:14:29.174Z [AUTOMATION][INFO] Credentials loaded from database
-[SMART-SL] Config loaded from DB. Phases: 4, ProfitLocks: 3
 [ENGINE] All subsystem configs loaded from DB
-2026-04-11T20:14:29.393Z [AUTOMATION][INFO] Engine state restored from DB (ticks: 0, PnL: 0.00)
+[OANDA-CRED] No credentials found
+2026-04-11T22:26:36.441Z [AUTOMATION][INFO] Credentials loaded from database
+[BROKER] No broker initialized
+2026-04-11T22:26:36.648Z [AUTOMATION][INFO] Engine state restored from DB (ticks: 0, PnL: 0.00)
 [ENGINE] Loaded 3 trades, peak balance: 101.67
 prisma:error 
 Invalid `prisma.session.upsert()` invocation:
@@ -101,46 +102,49 @@ Argument `profitFactor` is missing.
   clientVersion: '6.19.2'
 }
 [ENGINE] Started
-2026-04-11T20:14:29.503Z [AUTOMATION][INFO] Automation started. Interval: 3000ms
-[BROKER] No broker initialized
+2026-04-11T22:26:36.771Z [AUTOMATION][INFO] Automation started. Interval: 3000ms
 [WS] Testnet: WebSocket disabled, using REST polling only
-[MULTI-PAIR] Active pair changed to XAU_USD
-[MULTI-PAIR] WebSocket started for 21 pairs
+[MULTI-PAIR] WebSocket started for 20 pairs
 [MULTI-PAIR] Price monitoring started
 [BROKER] No broker initialized
 [BROKER] No broker initialized
-[SNAPSHOT] Public data fetch failed: Error: Failed to fetch price: 400
-    at $ (.next/server/chunks/src_lib_binance_ts_7031930f._.js:1:2011)
-    at processTicksAndRejections (null)
-[SNAPSHOT] Public data fetch failed: Error: Failed to fetch price: 400
-    at $ (.next/server/chunks/src_lib_binance_ts_7031930f._.js:1:2011)
-    at processTicksAndRejections (null)
-[SNAPSHOT] Public data fetch failed: Error: Failed to fetch price: 400
-    at $ (.next/server/chunks/src_lib_binance_ts_7031930f._.js:1:2011)
-    at processTicksAndRejections (null)
-[WARN] [BINANCE] Circuit opened for testnet:klines (5 failures, 60s cooldown) 
-[WARN] [BINANCE] Circuit opened for testnet:klines (6 failures, 60s cooldown) 
 [BROKER] No broker initialized
-[SNAPSHOT] Public data fetch failed: Error: Failed to fetch price: 400
-    at $ (.next/server/chunks/src_lib_binance_ts_7031930f._.js:1:2011)
-    at processTicksAndRejections (null)
 [BROKER] No broker initialized
-[SNAPSHOT] Public data fetch failed: Error: Failed to fetch price: 400
-    at $ (.next/server/chunks/src_lib_binance_ts_7031930f._.js:1:2011)
-    at processTicksAndRejections (null)
+[BROKER] No broker initialized
+[BROKER] No broker initialized
+[BROKER] No broker initialized
+[BROKER] No broker initialized
+[OANDA-CRED] No credentials found
+[BROKER] No broker initialized
+[BROKER] No broker initialized
+[BROKER] No broker initialized
+[BROKER] No broker initialized
 [BROKER] No broker initialized
 [ENGINE] NEUTRAL signal — score: 0.000, confidence: 0.30, reasons: 
-[SNAPSHOT] Public data fetch failed: Error: Failed to fetch price: 400
-    at $ (.next/server/chunks/src_lib_binance_ts_7031930f._.js:1:2011)
-    at processTicksAndRejections (null)
 [BROKER] No broker initialized
-[SNAPSHOT] Public data fetch failed: Error: Failed to fetch price: 400
-    at $ (.next/server/chunks/src_lib_binance_ts_7031930f._.js:1:2011)
-    at processTicksAndRejections (null)
 [BROKER] No broker initialized
-[SNAPSHOT] Public data fetch failed: Error: Failed to fetch price: 400
-    at $ (.next/server/chunks/src_lib_binance_ts_7031930f._.js:1:2011)
-    at processTicksAndRejections (null)
-s/src_lib_binance_ts_7031930f._.js:1:2011)
-    at processTicksAndRejections (null)
+[BROKER] No broker initialized
+[BROKER] No broker initialized
+[BROKER] No broker initialized
+[BROKER] No broker initialized
+[BROKER] No broker initialized
+[BROKER] No broker initialized
+[BROKER] No broker initialized
+[BROKER] No broker initialized
+[BROKER] No broker initialized
+[BROKER] No broker initialized
+[ENGINE] Market Intel: regime=STABLE, vol=LOW, conf=VERY_WEAK(0.15), confluence=0.60, sizeMultiplier=0.10
+[ENGINE] NEUTRAL signal — score: 0.000, confidence: 0.30, reasons: 
+[BROKER] No broker initialized
+[BROKER] No broker initialized
+[BROKER] No broker initialized
+[BROKER] No broker initialized
+[BROKER] No broker initialized
+[BROKER] No broker initialized
+[BROKER] No broker initialized
+[BROKER] No broker initialized
+o broker initialized
+[BROKER] No broker initialized
+[BROKER] No broker initialized
+[BROKER] No broker initialized
 error: script "start" exited with code 130

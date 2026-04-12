@@ -385,13 +385,14 @@ export class OandaAdapter implements IBroker {
       if (!data.positions) return [];
 
       return data.positions.map((pos: any) => {
-        const side = parseFloat(pos.pl) >= 0 ? 'LONG' : 'SHORT';
+        // Correct: derive side from currentUnits sign (positive = LONG, negative = SHORT)
+        const side = parseFloat(pos.trade.currentUnits) > 0 ? 'LONG' : 'SHORT';
         return {
           id: pos.trade.id,
           symbol: pos.instrument,
           side: side as 'LONG' | 'SHORT',
           entryPrice: parseFloat(pos.trade.price),
-          currentPrice: parseFloat(pos.trade.price), // Would need real-time update
+          currentPrice: parseFloat(pos.trade.price), // Entry price; real-time update needs separate fetch
           quantity: Math.abs(parseFloat(pos.trade.currentUnits)),
           unrealizedPnl: parseFloat(pos.unrealizedPL || pos.pl || '0'),
           stopLoss: pos.trade.guaranteedStopLossOrder ? parseFloat(pos.trade.guaranteedStopLossOrder.price) : undefined,
@@ -451,8 +452,7 @@ export class OandaAdapter implements IBroker {
           instrument: normalized,
           units: side === 'BUY' ? quantity.toString() : (-quantity).toString(),
           type: type === 'MARKET' ? 'MARKET' : type === 'LIMIT' ? 'LIMIT' : 'STOP',
-          timeInForce: 'FOK', // Fill or Kill
-          positionFill: 'DEFAULT',
+          timeInForce: 'FOK',
         }
       };
 
@@ -565,9 +565,9 @@ export class OandaAdapter implements IBroker {
       '1m': 'M1', '3m': 'M3', '5m': 'M5', '10m': 'M10',
       '15m': 'M15', '30m': 'M30', '1h': 'H1', '2h': 'H2',
       '3h': 'H3', '4h': 'H4', '6h': 'H6', '8h': 'H8',
-      '12h': 'H12', '1d': 'D', '1w': 'W', '1M': 'M',
+      '12h': 'H12', '1d': 'D', '1w': 'W',
     };
-    return map[timeframe] || 'M5';
+    return map[timeframe] || 'M5'; // Default to 5-minute candles
   }
 }
 

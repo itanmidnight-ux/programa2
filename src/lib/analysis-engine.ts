@@ -282,7 +282,7 @@ function calcStochRSI(closes: number[], rsiPeriod = 14, stochPeriod = 14, kSmoot
     kRaw.push(range === 0 ? 50 : ((rsiValues[i] - min) / range) * 100);
   }
   const kValues = sma(kRaw, kSmooth).map(v => isNaN(v) ? 50 : v);
-  const dValues = sma(kRaw, kSmooth + dSmooth).map(v => isNaN(v) ? 50 : v);
+  const dValues = sma(kValues, dSmooth).map(v => isNaN(v) ? 50 : v);
   return { k: kValues, d: dValues };
 }
 
@@ -344,9 +344,11 @@ function calcROC(closes: number[], period = 12): number[] {
 // INDICATORS - Volatility
 // ============================================
 
-/** Average True Range */
+/** Average True Range (Wilder's method) */
 function calcATR(candles: Candle[], period = 14): number[] {
-  const result: number[] = [0];
+  // First element: True Range of first candle (high - low since no previous close)
+  const firstTR = candles.length > 0 ? candles[0].high - candles[0].low : 0;
+  const result: number[] = [firstTR];
   for (let i = 1; i < candles.length; i++) {
     const tr = Math.max(
       candles[i].high - candles[i].low,
@@ -585,9 +587,9 @@ function calcParabolicSAR(candles: Candle[], step = 0.02, maxStep = 0.2): number
     // Check for reversal
     if (isUpTrend) {
       if (candles[i].low < sar) {
-        // Reversal to downtrend
+        // Reversal to downtrend - SAR should be set to the EP of the prior uptrend
+        sar = ep;
         isUpTrend = false;
-        sar = Math.max(ep, candles[i - 1].high, candles[i].high);
         ep = candles[i].low;
         af = step;
       } else {
@@ -598,9 +600,9 @@ function calcParabolicSAR(candles: Candle[], step = 0.02, maxStep = 0.2): number
       }
     } else {
       if (candles[i].high > sar) {
-        // Reversal to uptrend
+        // Reversal to uptrend - SAR should be set to the EP of the prior downtrend
+        sar = ep;
         isUpTrend = true;
-        sar = Math.min(ep, candles[i - 1].low, candles[i].low);
         ep = candles[i].high;
         af = step;
       } else {
@@ -616,10 +618,12 @@ function calcParabolicSAR(candles: Candle[], step = 0.02, maxStep = 0.2): number
   return result;
 }
 
-/** Ichimoku Cloud (simplified) */
+/** Ichimoku Cloud (standard displacement) */
 function calcIchimoku(candles: Candle[], tenkanPeriod = 9, kijunPeriod = 26, senkou = 52): {
   tenkan: number[]; kijun: number[]; senkouA: number[]; senkouB: number[]; chikou: number[];
 } {
+  const displacement = 26; // Standard displacement for Senkou and Chikou
+
   const highLow = (start: number, period: number) => {
     let hi = -Infinity, lo = Infinity;
     const end = Math.min(start + period, candles.length);
@@ -637,11 +641,22 @@ function calcIchimoku(candles: Candle[], tenkanPeriod = 9, kijunPeriod = 26, sen
   const chikou: number[] = [];
 
   for (let i = 0; i < candles.length; i++) {
-    tenkanLine.push(i < tenkanPeriod - 1 ? candles[i].close : highLow(i - tenkanPeriod + 1, tenkanPeriod));
-    kijunLine.push(i < kijunPeriod - 1 ? candles[i].close : highLow(i - kijunPeriod + 1, kijunPeriod));
-    senkouA.push((tenkanLine[i] + kijunLine[i]) / 2);
-    senkouB.push(i < senkou - 1 ? candles[i].close : highLow(i - senkou + 1, senkou));
-    chikou.push(i >= senkou ? candles[i - senkou].close : candles[i].close);
+    const tenkanVal = i < tenkanPeriod - 1 ? candles[i].close : highLow(i - tenkanPeriod + 1, tenkanPeriod);
+    const kijunVal = i < kijunPeriod - 1 ? candles[i].close : highLow(i - kijunPeriod + 1, kijunPeriod);
+    tenkanLine.push(tenkanVal);
+    kijunLine.push(kijunVal);
+
+    // Senkou A/B displaced 26 periods forward (shifted into the future)
+    // At index i, the cloud value that should appear 26 bars ahead is computed now
+    const senkouAVal = (tenkanVal + kijunVal) / 2;
+    const senkouBVal = i < senkou - 1 ? candles[i].close : highLow(i - senkou + 1, senkou);
+
+    // Store at displaced position
+    senkouA.push(i >= displacement ? senkouA[i - displacement] : 0);
+    senkouB.push(i >= displacement ? senkouB[i - displacement] : 0);
+
+    // Chikou span displaced 26 periods back
+    chikou.push(i >= displacement ? candles[i - displacement].close : candles[i].close);
   }
 
   return { tenkan: tenkanLine, kijun: kijunLine, senkouA, senkouB, chikou };
@@ -758,10 +773,13 @@ function calcMFI(candles: Candle[], period = 14): number[] {
     for (let j = i - period + 1; j <= i; j++) {
       const tp = (candles[j].high + candles[j].low + candles[j].close) / 3;
       const mf = tp * candles[j].volume;
-      if (j > 0) {
+      if (j > 0 && candles[j - 1]) {
         const prevTP = (candles[j - 1].high + candles[j - 1].low + candles[j - 1].close) / 3;
         if (tp > prevTP) posMF += mf;
         else negMF += mf;
+      } else {
+        // First candle in window: compare to itself (neutral)
+        posMF += mf;
       }
     }
     const mfr = negMF === 0 ? 100 : posMF / negMF;

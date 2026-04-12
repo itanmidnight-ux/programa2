@@ -6,332 +6,407 @@
 
 ## 📋 Tabla de Contenidos
 
-1. [Descripción](#descripción)
-2. [Mercados Soportados](#mercados-soportados)
-3. [Requisitos Previos](#requisitos-previos)
-4. [Obtener Credenciales de OANDA](#obtener-credenciales-de-oanda)
+1. [¿Qué es este programa?](#qué-es-este-programa)
+2. [Mercados disponibles](#mercados-disponibles)
+3. [Requisitos](#requisitos)
+4. [🔑 CÓMO CREAR TU CUENTA EN OANDA (Guía para principiantantes)](#-cómo-crear-tu-cuenta-en-oanda-guía-para-principiantantes)
 5. [Instalación](#instalación)
 6. [Ejecución](#ejecución)
-7. [Configuración de Credenciales](#configuración-de-credenciales)
-8. [Estructura del Proyecto](#estructura-del-proyecto)
-9. [Solución de Problemas](#solución-de-problemas)
+7. [Configurar credenciales en el programa](#configurar-credenciales-en-el-programa)
+8. [Solución de problemas](#solución-de-problemas)
 
 ---
 
-## Descripción
+## ¿Qué es este programa?
 
-RECO-Trading es una plataforma automatizada de trading que se conecta a **OANDA** para operar en:
+Es un **robot de trading** que opera automáticamente en mercados financieros como:
+- **Oro** (XAU/USD)
+- **Euro vs Dólar** (EUR/USD)
+- **Petróleo** (WTI)
+- **Índices** (Dow Jones, NASDAQ)
 
-| Categoría | Instrumentos |
-|-----------|-------------|
-| **Metales** | Oro (XAU/USD), Plata (XAG/USD) |
-| **Forex** | EUR/USD, GBP/USD, USD/JPY |
-| **Energía** | Petróleo WTI (WTI/USD) |
-| **Índices** | US30 (Dow Jones), NAS100 (NASDAQ) |
-
-**Características principales:**
-- ✅ Trading automático con análisis técnico de 30+ indicadores
-- ✅ Gestión de riesgo inteligente con stop loss y take profit dinámicos
-- ✅ Cierre rápido de ganancias (scalping automatizado)
-- ✅ Dashboard web en tiempo real
-- ✅ Conexión vía WebSocket REST optimizada
+Se conecta a **OANDA**, que es un bróker regulado y confiable.
 
 ---
 
-## Mercados Soportados
+## Mercados disponibles
 
-| Símbolo | Nombre | Pip Size | Horario |
-|---------|--------|----------|---------|
-| `XAU_USD` | Oro/USD | 0.01 | 24/5 (Lun 22:00 – Vie 22:00 UTC) |
-| `XAG_USD` | Plata/USD | 0.001 | 24/5 |
-| `EUR_USD` | Euro/Dólar | 0.0001 | 24/5 |
-| `GBP_USD` | Libra/Dólar | 0.0001 | 24/5 |
-| `USD_JPY` | Dólar/Yen | 0.01 | 24/5 |
-| `WTI_USD` | Petróleo WTI | 0.01 | 24/5 |
-| `US30_USD` | Dow Jones | 0.1 | Horario bolsa USA |
-| `NAS100_USD` | NASDAQ | 0.1 | Horario bolsa USA |
+| Qué quieres operar | Símbolo en el programa | Qué es |
+|-------------------|----------------------|--------|
+| **Oro** | `XAU_USD` | Precio del oro en dólares |
+| **Plata** | `XAG_USD` | Precio de la plata en dólares |
+| **Euro vs Dólar** | `EUR_USD` | Cuántos dólares cuesta 1 euro |
+| **Libra vs Dólar** | `GBP_USD` | Cuántos dólares cuesta 1 libra |
+| **Dólar vs Yen** | `USD_JPY` | Cuántos yenes cuesta 1 dólar |
+| **Petróleo** | `WTI_USD` | Precio del petróleo en dólares |
+| **Dow Jones** | `US30_USD` | Índice de las 30 empresas más grandes de EE.UU. |
+| **NASDAQ** | `NAS100_USD` | Índice de 100 empresas tecnológicas de EE.UU. |
 
 ---
 
-## Requisitos Previos
+## Requisitos
 
-| Requisito | Versión Mínima |
-|-----------|---------------|
-| **Node.js** | 18.0+ |
-| **Bun** | 1.0+ |
-| **RAM** | 2 GB mínimo |
-| **Disco** | 1 GB libre |
-| **Conexión a internet** | Sí (acceso a api-fxpractice.oanda.com) |
+| Qué necesitas | Cómo verificarlo |
+|---------------|-----------------|
+| **Bun instalado** | Escribe `bun --version` en la terminal. Si ves un número, lo tienes |
+| **Internet** | Abre cualquier página web |
+| **Terminal** | Ya la estás usando |
 
-### Instalar Bun (si no lo tienes):
+**Si NO tienes Bun:**
 ```bash
 curl -fsSL https://bun.sh/install | bash
-export PATH="$HOME/.bun/bin:$PATH"
 ```
+Luego cierra y abre la terminal de nuevo.
 
 ---
 
-## Obtener Credenciales de OANDA
+## 🔑 CÓMO CREAR TU CUENTA EN OANDA (Guía para principiantantes)
 
-### Opción A: Cuenta Demo (GRATIS — Recomendado para empezar)
-
-**Paso 1:** Ve a https://www.oanda.com/demo-account/
-
-**Paso 2:** Rellena el formulario:
-- Nombre, email, teléfono
-- País de residencia
-- Selecciona "Demo Account"
-
-**Paso 3:** Recibirás un email de confirmación. Activa tu cuenta.
-
-**Paso 4:** Inicia sesión en el dashboard: https://www.oanda.com/dashboard/
-
-**Paso 5:** Genera tu API Token:
-1. Ve a **Account** → **Manage API Access**
-2. Haz clic en **Generate Token**
-3. Copia el **Account ID** (ejemplo: `12345678`)
-4. Copia el **API Token** (cadena larga de caracteres)
-
-> **⚠️ Importante:** Guarda ambos valores. Los necesitarás para configurar el programa.
+> **⏱️ Tiempo estimado:** 5-10 minutos
+> **💰 Costo:** GRATIS (cuenta demo con dinero ficticio)
 
 ---
 
-### Opción B: Cuenta Real (Dinero real — Solo cuando estés listo)
+### PASO 1: Abrir la página de registro
 
-**Paso 1:** Ve a https://www.oanda.com/
+1. Abre tu navegador (Chrome, Firefox, etc.)
 
-**Paso 2:** Registra una cuenta real:
-- Proporciona documentación de identidad
-- Deposita fondos mínimos (varía por región, típicamente $100-250)
+2. Escribe esta URL exacta y presiona Enter:
+   ```
+   https://www.oanda.com
+   ```
 
-**Paso 3:** Una vez aprobada, genera tu API Token:
-1. Dashboard → **Account** → **Manage API Access**
-2. Genera un token para tu cuenta live
+3. Verás la página principal de OANDA. Busca un botón que dice algo como:
+   - **"Open an Account"** o
+   - **"Create Demo Account"** o
+   - **"Try Free Demo"**
 
-> **⚠️ ADVERTENCIA:** La cuenta real opera con dinero real. Solo úsala cuando hayas probado exhaustivamente en demo.
+4. Haz clic en ese botón.
+
+---
+
+### PASO 2: Llenar el formulario de registro
+
+Verás un formulario con varios campos. Llena **TODOS** los que tengan un asterisco (*) o que estén marcados como obligatorios:
+
+| Campo | Qué poner | Ejemplo |
+|-------|-----------|---------|
+| **First Name** | Tu nombre | Juan |
+| **Last Name** | Tu apellido | Pérez |
+| **Email** | Tu email REAL (necesitas confirmarlo) | tucorreo@gmail.com |
+| **Country** | Tu país | Selecciona de la lista |
+| **Phone** | Tu teléfono | +52 123 456 7890 |
+| **Date of Birth** | Tu fecha de nacimiento | Selecciona del calendario |
+
+5. **Acepta los términos:** Busca un checkbox que diga algo como "I agree to the Terms" o "Accept" y márcalo.
+
+6. **Haz clic en el botón grande** que dice:
+   - **"Create Account"** o
+   - **"Submit"** o
+   - **"Register"**
+
+---
+
+### PASO 3: Verificar tu email
+
+1. Abre tu correo electrónico (Gmail, Outlook, etc.)
+
+2. Busca un email de **OANDA** en tu bandeja de entrada. Puede tardar 1-5 minutos.
+
+3. **Si no lo ves:** Revisa la carpeta de **SPAM** o **Correo no deseado**.
+
+4. Abre el email de OANDA y busca un botón o enlace que dice:
+   - **"Verify Email"** o
+   - **"Confirm Account"** o
+   - **"Activate Account"**
+
+5. Haz clic en ese enlace. Te llevará a una página de confirmación.
+
+---
+
+### PASO 4: Iniciar sesión por primera vez
+
+1. Vuelve a la página de OANDA:
+   ```
+   https://www.oanda.com
+   ```
+
+2. Busca un botón que dice **"Login"** o **"Sign In"** (generalmente arriba a la derecha) y haz clic.
+
+3. En la página de login, ingresa:
+   - **Username o Email:** El email que usaste para registrarte
+   - **Password:** La contraseña que creaste (o la que te enviaron por email)
+
+4. Haz clic en **"Login"** o **"Sign In"**
+
+---
+
+### PASO 5: Ir al Dashboard (Panel de Control)
+
+1. **Después de iniciar sesión**, deberías ver tu **panel de control**. Si no estás ahí, busca esta URL:
+   ```
+   https://www.oanda.com/dashboard/
+   ```
+
+   > **⚠️ Si te da error 404:**
+   > - Intenta con: `https://www.oanda.com/client/`
+   > - O busca un enlace que diga "Dashboard" o "My Account" en la página principal después de hacer login
+
+2. En el dashboard, deberías ver algo como:
+   - Tu **número de cuenta** (algo como `12345678`)
+   - Tu **balance** (será dinero ficticio, ej: $10,000 USD)
+   - Opciones como "Trade", "History", "Settings"
+
+3. **IMPORTANTE:** Anota tu **número de cuenta**. Es un número de 7-8 dígitos. Lo necesitarás.
+
+---
+
+### PASO 6: Generar tu API Token (La "llave" del programa)
+
+1. En el dashboard, busca una sección que diga algo como:
+   - **"API Management"** o
+   - **"Manage API Access"** o
+   - **"Developer"** o
+   - **"Settings" → "API"**
+
+   **Si no la encuentras:**
+   - Busca un ícono de ⚙️ (engranaje) o "Settings"
+   - Dentro de Settings busca "API" o "Developer"
+   - O ve directamente a: `https://www.oanda.com/client/api/`
+
+2. En la página de API Management, verás un botón que dice:
+   - **"Generate Token"** o
+   - **"Create Token"** o
+   - **"Create API Key"**
+
+3. Haz clic en ese botón.
+
+4. Te pedirá configurar el token:
+   - **Name:** Escribe algo como "RECO-Trading" (puede ser cualquier nombre)
+   - **Access:** Selecciona **"Full Access"** o **"Read and Write"** o **"Trade"**
+   - **IP Restrictions:** Déjalo en blanco o selecciona "No restrictions"
+
+5. Haz clic en **"Create"** o **"Generate"**
+
+6. **¡IMPORTANTE!** Te mostrará tu **API Token** (una cadena larga de letras y números). **CÓPIALO AHORA** porque puede que no te lo muestre de nuevo.
+
+   Se verá algo así:
+   ```
+   1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
+   ```
+
+7. **Guarda el token en un lugar seguro** (un archivo de texto, notas, etc.)
+
+---
+
+### PASO 7: Ya tienes todo lo que necesitas
+
+Ahora deberías tener **DOS cosas**:
+
+| Lo que necesitas | Dónde encontrarlo | Ejemplo |
+|-----------------|-------------------|---------|
+| **Account ID** | En tu dashboard, es tu número de cuenta | `12345678` |
+| **API Token** | El token que acabas de generar | `1234567890abcdef...` (cadena larga) |
+
+**¡Felicidades!** Ya tienes tus credenciales. Ahora necesitas ponerlas en el programa.
 
 ---
 
 ## Instalación
 
-### Paso 1: Navega al directorio del proyecto
+### Paso 1: Ir al directorio del proyecto
 ```bash
 cd /home/kali/Downloads/real
 ```
 
-### Paso 2: Ejecuta el instalador
+### Paso 2: Ejecutar el instalador
 ```bash
 ./install.sh
 ```
 
-El instalador hará:
-1. ✅ Verifica Bun runtime
-2. ✅ Crea archivo `.env` con configuración
-3. ✅ Instala dependencias
-4. ✅ Configura la base de datos
-5. ✅ Compila la aplicación
+Esto tomará 2-5 minutos. Instalará todo lo necesario.
 
-### Paso 3: Verifica la instalación
+### Paso 3: Verificar que todo está bien
 ```bash
 ./health-check.sh
 ```
+
+Si todo dice ✅ (verde), estás listo.
 
 ---
 
 ## Ejecución
 
-### Inicio normal (todo automático):
+### Para iniciar el programa:
 ```bash
 ./run.sh
 ```
 
-El script:
-1. ✅ Inicia el servidor web en `http://localhost:3000`
-2. ✅ Inicia el motor de trading automáticamente
-3. ✅ Muestra logs en tiempo real
+### Para abrir el dashboard web:
+Abre tu navegador y ve a:
+```
+http://localhost:3000
+```
 
-### Para detener:
+### Para detener el programa:
 ```bash
 ./stop.sh
 ```
 
-### Para verificar estado:
-```bash
-./health-check.sh
-```
-
-### Para monitorear logs:
+### Para ver los logs en tiempo real:
 ```bash
 tail -f server.log | grep -E "(ENGINE|Trade|💰)"
 ```
 
 ---
 
-## Configuración de Credenciales
+## Configurar credenciales en el programa
 
-### Método 1: Desde el Dashboard (Recomendado)
+### Método 1: Desde el Dashboard Web (Recomendado)
 
-1. Abre http://localhost:3000
-2. Ve a **Settings** (panel lateral)
-3. Busca la sección **OANDA Credentials**
-4. Ingresa:
-   - **Account ID**: Tu ID de cuenta OANDA
-   - **API Token**: Tu token de API
-   - **Cuenta Demo**: Actívalo para demo, desactívalo para live
-5. Click en **Validar** — Deberías ver "Conexión exitosa"
-6. Click en **Guardar**
+1. **Abre el dashboard:** http://localhost:3000
+
+2. **Busca el panel de Settings:** En el menú lateral izquierdo, haz clic en **"Settings"** o **"Configuración"**
+
+3. **Busca la sección "OANDA Credentials":** Verás un formulario con:
+   - Campo: **Account ID**
+   - Campo: **API Token**
+   - Toggle: **Cuenta Demo** (activado = demo, desactivado = real)
+
+4. **Llena los campos:**
+   - **Account ID:** Pega el número de cuenta que anotaste (ej: `12345678`)
+   - **API Token:** Pega el token largo que copiaste (ej: `1234567890abcdef...`)
+   - **Cuenta Demo:** Déjalo ACTIVADO si estás usando cuenta demo
+
+5. **Haz clic en "Validar":**
+   - ✅ Si funciona: Verás "Conexión exitosa" + tu balance
+   - ❌ Si falla: Verifica que copiaste bien los datos
+
+6. **Haz clic en "Guardar":** Las credenciales se guardarán de forma segura.
 
 ### Método 2: Desde el archivo .env
 
-Edita `.env`:
-```bash
-nano .env
-```
+1. Abre el archivo de configuración:
+   ```bash
+   nano /home/kali/Downloads/real/.env
+   ```
 
-Busca y modifica estas líneas:
-```env
-OANDA_ACCOUNT_ID=tu_account_id_aqui
-OANDA_API_TOKEN=tu_api_token_aqui
-OANDA_IS_DEMO=true
-```
+2. Busca estas líneas y cámbialas por tus datos:
+   ```env
+   OANDA_ACCOUNT_ID=tu_numero_de_cuenta_aqui
+   OANDA_API_TOKEN=tu_token_largo_aqui
+   OANDA_IS_DEMO=true
+   ```
 
-Guarda y reinicia:
-```bash
-./stop.sh && ./run.sh
-```
+   **Ejemplo real:**
+   ```env
+   OANDA_ACCOUNT_ID=12345678
+   OANDA_API_TOKEN=1234567890abcdef1234567890abcdef1234567890abcdef
+   OANDA_IS_DEMO=true
+   ```
 
----
+3. **Guarda el archivo:**
+   - Presiona `Ctrl + X`
+   - Presiona `Y` (Yes)
+   - Presiona `Enter`
 
-### Cambiar Mercado de Trading
-
-**Desde el Dashboard:**
-1. Settings → Trading Parameters → Trading Symbol
-2. Selecciona el mercado deseado (XAU/USD, EUR/USD, etc.)
-3. Guarda cambios
-
-**Desde .env:**
-```env
-TRADING_SYMBOL=XAU_USD
-```
+4. **Reinicia el programa:**
+   ```bash
+   ./stop.sh && ./run.sh
+   ```
 
 ---
 
-## Estructura del Proyecto
+## Solución de problemas
+
+### ❌ "Me sale error 404 en oanda.com/dashboard/"
+
+**Solución:**
+- Después de hacer login, busca un enlace que diga "Dashboard", "My Account" o "Client Area" en la página principal
+- Prueba con: `https://www.oanda.com/client/`
+- O simplemente busca el ícono de tu perfil (arriba a la derecha) y haz clic
+
+---
+
+### ❌ "No encuentro la sección de API Management"
+
+**Solución:**
+1. En tu dashboard, busca **Settings** (⚙️ engranaje)
+2. Dentro de Settings busca **"API"**, **"Developer"**, o **"Manage API Access"**
+3. Si no lo encuentras, ve directamente a: `https://www.oanda.com/client/api/`
+
+---
+
+### ❌ "No me llegó el email de confirmación"
+
+**Solución:**
+1. Espera 5-10 minutos
+2. Revisa la carpeta de **SPAM** o **Correo no deseado**
+3. Si no llega, regresa a oanda.com y busca "Resend verification email"
+4. Si nada funciona, regístrate de nuevo con otro email
+
+---
+
+### ❌ "El programa dice 'Broker not connected'"
+
+**Causa:** Las credenciales no están configuradas o son incorrectas.
+
+**Solución:**
+1. Ve a Settings en el dashboard del programa
+2. Verifica que Account ID y API Token estén bien escritos (sin espacios extra)
+3. Haz clic en "Validar" — debe mostrar "Conexión exitosa"
+4. Si falla, vuelve a copiar las credenciales desde OANDA
+
+---
+
+### ❌ "El programa no ejecuta trades"
+
+**Posibles causas:**
+1. **Mercado cerrado:** Forex y metales operan de lunes a viernes. Cierran viernes 22:00 UTC y abren domingo 22:00 UTC
+2. **Sin credenciales:** El programa necesita que configures las credenciales primero
+3. **Balance bajo:** Necesitas al menos ~$100 en tu cuenta demo
+
+**Solución:**
+- Configura las credenciales como se explica arriba
+- Verifica que el mercado esté abierto (lunes a viernes)
+- Verifica que tienes balance suficiente en tu cuenta OANDA
+
+---
+
+### ❌ "¿Puedo usar este programa con dinero real?"
+
+**Respuesta:** Sí, pero:
+1. Primero prueba exhaustivamente en **cuenta demo**
+2. Cuando estés seguro de que funciona, cambia a cuenta real:
+   - Registra una cuenta real en oanda.com
+   - Genera un nuevo API Token para tu cuenta live
+   - En el programa, desactiva el toggle "Cuenta Demo"
+   - Ingresa las credenciales de tu cuenta real
+
+> **⚠️ ADVERTENCIA:** El trading con dinero real conlleva riesgo de pérdida. Nunca inviertas dinero que no puedas permitirte perder.
+
+---
+
+## Estructura del proyecto
 
 ```
 real/
-├── install.sh              # Instalador automático
-├── run.sh                  # Inicia todo automáticamente
-├── stop.sh                 # Detiene todos los servicios
-├── health-check.sh         # Verifica estado del sistema
-├── .env                    # Configuración y credenciales (NO commitear)
+├── install.sh              # Instala todo automáticamente
+├── run.sh                  # Inicia el programa
+├── stop.sh                 # Detiene el programa
+├── health-check.sh         # Verifica que todo funcione
+├── .env                    # Tu configuración (¡NO compartir!)
+├── README.md               # Este archivo
 ├── src/
-│   ├── lib/
-│   │   ├── broker-manager.ts       # Gestor central de brokers
-│   │   ├── oanda-adapter.ts        # Adapter para OANDA
-│   │   ├── oanda-credentials.ts    # Gestión de credenciales
-│   │   ├── broker-interface.ts     # Interfaz universal de broker
-│   │   ├── execution-engine.ts     # Motor de trading
-│   │   ├── automation.ts           # Automatización de ticks
-│   │   ├── analysis-engine.ts      # 30+ indicadores técnicos
-│   │   ├── risk-manager.ts         # Gestión de riesgo
-│   │   ├── smart-stop-loss.ts      # Stop loss inteligente
-│   │   ├── scalping-engine.ts      # Motor de scalping
-│   │   └── strategies/             # Estrategias de trading
-│   ├── app/api/                    # APIs REST
-│   │   ├── snapshot/route.ts       # Estado completo del sistema
-│   │   ├── engine/route.ts         # Control del engine
-│   │   └── config/credentials/     # Gestión de credenciales
-│   └── components/dashboard/       # Interfaz web
-│       ├── header.tsx              # Header con selector de mercado
-│       ├── charts-panel.tsx        # Gráficos de velas
-│       ├── overview-panel.tsx      # Resumen general
-│       ├── trades-panel.tsx        # Historial de trades
-│       └── settings-panel.tsx      # Configuración
-├── prisma/schema.prisma            # Esquema de base de datos
-└── data/reco_trading.db            # Base de datos SQLite
+│   ├── lib/                # Motor de trading
+│   ├── app/api/            # APIs del sistema
+│   └── components/         # Dashboard web
+└── data/                   # Base de datos
 ```
 
 ---
 
-## Solución de Problemas
-
-### ❌ "Market data fetch failed" o "400 error"
-
-**Causa:** Las credenciales de OANDA no están configuradas o son incorrectas.
-
-**Solución:**
-1. Ve a Settings → OANDA Credentials
-2. Verifica Account ID y API Token
-3. Click en "Validar" — debe mostrar "Conexión exitosa"
-4. Si falla, regresa a https://www.oanda.com/dashboard/ y verifica tus credenciales
-
----
-
-### ❌ "Broker not connected"
-
-**Causa:** El programa no pudo conectar con OANDA.
-
-**Solución:**
-1. Verifica que tienes internet
-2. Verifica que las credenciales son correctas
-3. Prueba acceder manualmente: `curl https://api-fxpractice.oanda.com/v3/accounts`
-4. Si usas cuenta demo, asegúrate de que el toggle "Cuenta Demo" está activado
-
----
-
-### ❌ El programa no ejecuta trades
-
-**Causas posibles:**
-1. **Mercado cerrado:** Forex/metales operan 24/5 (cierran viernes 22:00 UTC, abren domingo 22:00 UTC)
-2. **Señal NEUTRAL:** El mercado no tiene dirección clara — es normal
-3. **Balance insuficiente:** Necesitas al menos ~$100 en tu cuenta para operar
-
-**Solución:**
-- Verifica que el mercado esté abierto
-- Espera a que la señal cambie de NEUTRAL a LONG/SHORT
-- Asegúrate de tener balance suficiente
-
----
-
-### ❌ "Filter failure: LOT_SIZE"
-
-**Causa:** El tamaño de la posición no cumple los requisitos mínimos del mercado.
-
-**Solución:** El sistema ya ajusta automáticamente al mínimo permitido. Si persiste, aumenta el balance de tu cuenta.
-
----
-
-### ❌ El dashboard no carga
-
-**Solución:**
-```bash
-./stop.sh
-rm -rf .next
-./run.sh
-```
-
----
-
-### ❌ Quiero cambiar de cuenta Demo a Real
-
-1. Settings → OANDA Credentials
-2. Ingresa las credenciales de tu cuenta **Live**
-3. Desactiva el toggle "Cuenta Demo"
-4. Click en **Validar** → debe mostrar balance real
-5. Click en **Guardar**
-
-> **⚠️ IMPORTANTE:** Una vez en modo real, todas las operaciones usan dinero real.
-
----
-
-## Licencia
-
-Este software es para uso educativo y de desarrollo. El trading conlleva riesgos financieros significativos.
-
-## Soporte
-
-Para problemas no cubiertos en esta guía, revisa los logs:
+**¿Necesitas ayuda?** Revisa los logs:
 ```bash
 tail -100 server.log
 ```
