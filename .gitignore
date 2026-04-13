@@ -50,6 +50,14 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 bun-debug.log*
+dev.log
+server.log
+*.log
+
+# Codex/local tool state (keep local only)
+.codex/
+.qwen/
+.web.pid
 
 # IDE
 .idea/
