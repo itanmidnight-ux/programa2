@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { automation } from '@/lib/automation';
+import { getActiveBroker, getBrokerCredentials, loadBrokerCredentials } from '@/lib/broker-credentials';
+import type { BrokerProvider } from '@/lib/broker-provider';
 import {
   closePosition as brokerClosePosition,
   getTickerPrice,
@@ -9,11 +11,12 @@ import {
 } from '@/lib/broker-manager';
 
 interface ExecuteRequest {
-  action: 'buy' | 'sell' | 'close';
+  action: 'buy' | 'sell' | 'close' | 'close_all';
   pair?: string;
   quantity?: number;
   price?: number;
   confidence?: number;
+  confirmLive?: boolean;
 }
 
 const MAX_QUANTITY = parseFloat(process.env.MAX_QUANTITY || '100');
@@ -23,21 +26,126 @@ function sanitizePair(pair: string): string {
   return pair.replace(/[^A-Za-z0-9/_-]/g, '').replace('/', '_').toUpperCase().slice(0, 20);
 }
 
+async function isWeltradeBridgeHealthy(): Promise<boolean> {
+  const baseUrl = process.env.WELTRADE_MT5_BRIDGE_URL || 'http://127.0.0.1:5001';
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3000);
+  try {
+    const res = await fetch(`${baseUrl}/health`, {
+      method: 'GET',
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    if (!res.ok) return false;
+    const data = await res.json().catch(() => null);
+    return data?.status === 'ok';
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function POST(request: Request) {
   const startTime = Date.now();
   try {
     const body: ExecuteRequest = await request.json();
-    const { action, pair: inputPair, quantity: inputQty, price: inputPrice, confidence: inputConfidence } = body;
+    const { action, pair: inputPair, quantity: inputQty, price: inputPrice, confidence: inputConfidence, confirmLive } = body;
 
-    if (!action || !['buy', 'sell', 'close'].includes(action)) {
+    if (!action || !['buy', 'sell', 'close', 'close_all'].includes(action)) {
       return NextResponse.json(
-        { success: false, error: 'Invalid action. Use: buy, sell, or close' },
+        { success: false, error: 'Invalid action. Use: buy, sell, close, or close_all' },
         { status: 400 }
       );
     }
 
+    const activeBroker: BrokerProvider = await getActiveBroker().catch(() => 'oanda' as BrokerProvider);
+    await loadBrokerCredentials(activeBroker).catch(() => false);
+    const creds = getBrokerCredentials(activeBroker);
     const pair = sanitizePair(inputPair || process.env.TRADING_SYMBOL || 'XAU_USD');
     const connected = isBrokerConnected();
+
+    if ((action === 'buy' || action === 'sell') && activeBroker === 'weltrade_mt5' && connected) {
+      const bridgeHealthy = await isWeltradeBridgeHealthy();
+      if (!bridgeHealthy) {
+        return NextResponse.json(
+          { success: false, error: 'Weltrade MT5 bridge is offline. Start bridge service and retry.' },
+          { status: 503 }
+        );
+      }
+    }
+
+    if ((action === 'buy' || action === 'sell') && creds && !creds.isDemo && confirmLive !== true) {
+      return NextResponse.json(
+        { success: false, error: 'Live trading confirmation required. Send confirmLive=true to execute.' },
+        { status: 400 }
+      );
+    }
+
+    if (action === 'close_all') {
+      const openPositions = await db.position.findMany({ include: { trade: true } });
+      if (openPositions.length === 0) {
+        return NextResponse.json({ success: false, error: 'No open positions to close' }, { status: 404 });
+      }
+
+      let closedCount = 0;
+      let totalPnl = 0;
+      const brokerErrors: string[] = [];
+
+      for (const pos of openPositions) {
+        const marketPrice = inputPrice || await getTickerPrice(pos.pair).catch(() => pos.currentPrice);
+        const isLong = pos.side === 'LONG';
+        const pnl = isLong
+          ? (marketPrice - pos.entryPrice) * pos.quantity
+          : (pos.entryPrice - marketPrice) * pos.quantity;
+        const pnlPct = pos.entryPrice > 0
+          ? ((isLong ? marketPrice - pos.entryPrice : pos.entryPrice - marketPrice) / pos.entryPrice) * 100
+          : 0;
+
+        if (connected) {
+          const brokerClose = await brokerClosePosition(pos.pair, pos.quantity).catch((err) => ({
+            success: false,
+            error: err instanceof Error ? err.message : 'close failed',
+          }));
+          if (!brokerClose?.success) {
+            brokerErrors.push(`${pos.pair}: ${brokerClose?.error || 'close failed'}`);
+          }
+        }
+
+        await db.trade.update({
+          where: { id: pos.tradeId },
+          data: {
+            exitPrice: marketPrice,
+            pnl: +pnl.toFixed(2),
+            pnlPercent: +pnlPct.toFixed(2),
+            status: 'CLOSED',
+            exitReason: pnl >= 0 ? 'MANUAL' : 'STOP_LOSS',
+            closedAt: new Date(),
+          },
+        });
+        await db.position.delete({ where: { id: pos.id } });
+
+        closedCount += 1;
+        totalPnl += pnl;
+      }
+
+      await db.systemLog.create({
+        data: {
+          level: brokerErrors.length > 0 ? 'WARNING' : 'INFO',
+          source: 'execute',
+          message: `Closed all positions (${closedCount}). Total PnL ${totalPnl.toFixed(2)}${brokerErrors.length > 0 ? ` | Broker warnings: ${brokerErrors.join(' | ')}` : ''}`,
+        },
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: `Closed ${closedCount} positions`,
+        closedCount,
+        totalPnl: +totalPnl.toFixed(2),
+        brokerWarnings: brokerErrors,
+        api_latency_ms: Date.now() - startTime,
+      });
+    }
 
     if (action === 'close') {
       const openPosition = await db.position.findFirst({ where: { pair }, include: { trade: true } });

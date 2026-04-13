@@ -62,14 +62,15 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { action } = body;
 
-    if (!action || !["start", "stop", "tick"].includes(action)) {
+    if (!action || !["start", "stop", "pause", "tick"].includes(action)) {
       return NextResponse.json(
-        { success: false, message: "Invalid action. Use: start, stop, or tick" },
+        { success: false, message: "Invalid action. Use: start, stop, pause, or tick" },
         { status: 400 }
       );
     }
 
     let result: { success: boolean; message: string };
+    let forcedState: "PAUSED" | null = null;
 
     switch (action) {
       case "start":
@@ -79,6 +80,11 @@ export async function POST(request: Request) {
       case "stop":
         automation.stop();
         result = { success: true, message: "Engine stopped" };
+        break;
+      case "pause":
+        await automation.stop();
+        result = { success: true, message: "Engine paused" };
+        forcedState = "PAUSED";
         break;
       case "tick":
         const tickResult = await automation.tick();
@@ -96,7 +102,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       ...result,
-      state: status.running ? "RUNNING" : "STOPPED",
+      state: forcedState || (status.running ? "RUNNING" : "STOPPED"),
       metrics,
       api_latency_ms: Date.now() - startTime,
     });

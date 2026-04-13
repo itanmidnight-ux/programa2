@@ -11,6 +11,7 @@ import { AreaChart, Area, ResponsiveContainer, YAxis } from "recharts";
 import { useTradingStore } from "@/lib/trading-store";
 import { formatPrice, formatCurrency, formatPercent, formatVolume, pnlColor, signalBgColor, cn } from "@/lib/utils";
 import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 12 },
@@ -111,8 +112,85 @@ function UsMarketClock() {
   );
 }
 
+function QuickActions({ selectedPair }: { selectedPair: string }) {
+  const [busy, setBusy] = useState<"pause" | "close_pair" | "close_all" | null>(null);
+  const [feedback, setFeedback] = useState("");
+
+  const runAction = async (kind: "pause" | "close_pair" | "close_all") => {
+    setBusy(kind);
+    setFeedback("");
+    try {
+      if (kind === "pause") {
+        const res = await fetch("/api/engine", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "pause" }),
+        });
+        const data = await res.json();
+        setFeedback(data?.message || (res.ok ? "Engine paused" : "Failed to pause"));
+      } else if (kind === "close_pair") {
+        const res = await fetch("/api/execute", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "close", pair: selectedPair }),
+        });
+        const data = await res.json();
+        setFeedback(data?.message || (res.ok ? "Position closed" : "Close failed"));
+      } else {
+        const res = await fetch("/api/execute", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "close_all" }),
+        });
+        const data = await res.json();
+        setFeedback(data?.message || (res.ok ? "All positions closed" : "Close all failed"));
+      }
+    } catch {
+      setFeedback("Action failed. Check logs and retry.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="pt-3 border-t border-white/[0.06]">
+      <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-2">Quick Actions</div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          className="border-amber-500/30 text-amber-300 hover:bg-amber-500/10"
+          onClick={() => runAction("pause")}
+          disabled={busy !== null}
+        >
+          {busy === "pause" ? "Pausing..." : "Pause Engine"}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="border-red-500/30 text-red-300 hover:bg-red-500/10"
+          onClick={() => runAction("close_pair")}
+          disabled={busy !== null}
+        >
+          {busy === "close_pair" ? "Closing..." : `Close ${selectedPair.replace("_", "/")}`}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="border-red-600/40 text-red-200 hover:bg-red-600/10"
+          onClick={() => runAction("close_all")}
+          disabled={busy !== null}
+        >
+          {busy === "close_all" ? "Closing..." : "Close All"}
+        </Button>
+      </div>
+      <div className="text-[11px] text-gray-500 mt-2 min-h-4">{feedback}</div>
+    </div>
+  );
+}
+
 export function OverviewPanel() {
-  const { snapshot } = useTradingStore();
+  const { snapshot, selectedPair } = useTradingStore();
   const s = snapshot;
   const isUp = s.change_24h >= 0;
   const equityData = s.candles_5m.slice(-60).map((c, i) => ({
@@ -421,6 +499,7 @@ export function OverviewPanel() {
               </div>
               <span className="font-mono text-xs text-purple-400">{s.market_regime}</span>
             </div>
+            <QuickActions selectedPair={selectedPair} />
           </div>
         </motion.div>
       </div>
