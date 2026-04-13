@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
   TrendingUp, Minus, DollarSign, Wallet,
@@ -67,6 +68,42 @@ function WinRateGauge({ winRate, wins, losses }: { winRate: number; wins: number
   );
 }
 
+function UsMarketClock() {
+  const [now, setNow] = useState(new Date());
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const time = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(now);
+
+  const date = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+  }).format(now);
+
+  return (
+    <div className="glass-card rounded-xl p-3 border border-white/[0.08] min-w-[220px]">
+      <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider text-gray-500">
+        <Clock className="h-3.5 w-3.5 text-cyan-400" />
+        US Time (New York)
+      </div>
+      <div className="text-xl font-mono font-bold text-cyan-300 mt-1">{time}</div>
+      <div className="text-[11px] text-gray-400 mt-0.5">{date}</div>
+    </div>
+  );
+}
+
 export function OverviewPanel() {
   const { snapshot } = useTradingStore();
   const s = snapshot;
@@ -101,6 +138,7 @@ export function OverviewPanel() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <UsMarketClock />
             <div className={cn("px-4 py-2 rounded-lg border text-center", signalBgColor(s.signal))}>
               <div className="text-xl font-bold">{s.signal}</div>
               <div className="text-[10px] uppercase tracking-widest opacity-70 mt-0.5">Signal</div>

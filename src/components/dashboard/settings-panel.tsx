@@ -20,6 +20,7 @@ import {
   Plus,
   Check,
   AlertTriangle,
+  CircleHelp,
   Globe,
   ShieldCheck,
   Database,
@@ -39,6 +40,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 12 },
@@ -62,6 +64,21 @@ interface SettingField {
   placeholder?: string;
   options?: Array<{ label: string; value: string }>;
   hint?: string;
+}
+
+function HelpIcon({ text }: { text: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button type="button" className="inline-flex items-center justify-center">
+          <CircleHelp className="h-3.5 w-3.5 text-gray-500 hover:text-cyan-300 transition-colors" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-[260px] bg-neutral-900 text-neutral-100 border border-white/10">
+        {text}
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 interface SettingSection {
@@ -832,7 +849,10 @@ export function SettingsPanel() {
         </div>
         <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4 space-y-3">
           <div className="space-y-1">
-            <Label className="text-xs text-gray-400">Broker activo</Label>
+            <div className="flex items-center gap-1.5">
+              <Label className="text-xs text-gray-400">Broker activo</Label>
+              <HelpIcon text="Selecciona el broker de ejecución principal del bot." />
+            </div>
             <Select value={selectedBroker} onValueChange={(v) => setSelectedBroker(v as any)}>
               <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-xs h-8">
                 <SelectValue />
@@ -853,7 +873,10 @@ export function SettingsPanel() {
             </div>
           )}
           <div className="flex items-center justify-between">
-            <Label className="text-xs text-gray-400">Cuenta Demo</Label>
+            <div className="flex items-center gap-1.5">
+              <Label className="text-xs text-gray-400">Cuenta Demo</Label>
+              <HelpIcon text="Activa demo para pruebas sin riesgo. Desactiva para operar en cuenta real." />
+            </div>
             <Switch checked={oandaIsDemo} onCheckedChange={setOandaIsDemo} />
           </div>
           <p className="text-[10px] text-gray-500 -mt-2">
@@ -914,7 +937,10 @@ export function SettingsPanel() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {section.fields.map((field) => (
                   <div key={field.key} className="space-y-1.5">
-                    <Label className="text-xs text-gray-400">{field.label}</Label>
+                    <div className="flex items-center gap-1.5">
+                      <Label className="text-xs text-gray-400">{field.label}</Label>
+                      <HelpIcon text={field.hint || `Configura ${field.label} para ajustar el comportamiento del bot.`} />
+                    </div>
                     {field.type === "toggle" ? (
                       <div className="flex items-center gap-2">
                         <Switch
