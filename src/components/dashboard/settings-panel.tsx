@@ -227,7 +227,7 @@ export function SettingsPanel() {
   const [showRealConfirm, setShowRealConfirm] = useState(false);
 
   // Broker credential state
-  const [selectedBroker, setSelectedBroker] = useState<"oanda" | "weltrade_mt5" | "ctrader">("oanda");
+  const [selectedBroker, setSelectedBroker] = useState<"oanda" | "weltrade_mt5" | "ctrader">("weltrade_mt5");
   const [oandaAccountId, setOandaAccountId] = useState("");
   const [oandaApiToken, setOandaApiToken] = useState("");
   const [brokerServer, setBrokerServer] = useState("");
@@ -328,7 +328,13 @@ export function SettingsPanel() {
   /* ---- Save broker credentials ---- */
   const handleSaveOandaCredentials = async () => {
     if (!oandaAccountId.trim() || !oandaApiToken.trim()) {
-      toast({ title: "Campos requeridos", description: "Account ID y API Token son obligatorios", variant: "destructive" });
+      toast({
+        title: "Campos requeridos",
+        description: selectedBroker === "weltrade_mt5"
+          ? "MT5 Login y MT5 Password son obligatorios"
+          : "Account ID y API Token son obligatorios",
+        variant: "destructive",
+      });
       return;
     }
     setSavingCreds(true);
@@ -822,7 +828,7 @@ export function SettingsPanel() {
         <div className="flex items-center gap-2 mb-4">
           <Key className="h-4 w-4 text-blue-400" />
           <h3 className="text-sm font-semibold text-white">Broker Credentials</h3>
-          <p className="text-[10px] text-gray-500 ml-1">Selecciona broker y credenciales activas</p>
+          <p className="text-[10px] text-gray-500 ml-1">Configura Weltrade MT5 desde aquí para operación automática</p>
         </div>
         <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4 space-y-3">
           <div className="space-y-1">
@@ -832,12 +838,20 @@ export function SettingsPanel() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="oanda">OANDA</SelectItem>
                 <SelectItem value="weltrade_mt5">Weltrade MT5</SelectItem>
+                <SelectItem value="oanda">OANDA (backup)</SelectItem>
                 <SelectItem value="ctrader">cTrader</SelectItem>
               </SelectContent>
             </Select>
           </div>
+          {selectedBroker === "weltrade_mt5" && (
+            <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-2">
+              <p className="text-[10px] text-emerald-300">
+                Flujo recomendado: Login MT5 + Password + Server exacto + Bridge URL activo.
+                Luego pulsa Validar y Guardar.
+              </p>
+            </div>
+          )}
           <div className="flex items-center justify-between">
             <Label className="text-xs text-gray-400">Cuenta Demo</Label>
             <Switch checked={oandaIsDemo} onCheckedChange={setOandaIsDemo} />

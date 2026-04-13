@@ -1,316 +1,220 @@
 #!/usr/bin/env bash
-# ============================================
-# RECO-TRADING DASHBOARD - INSTALLER
-# ============================================
-# 100% PORTABLE — everything installs relative
-# to the folder where this script lives.
-# Just copy the project folder anywhere and run:
-#   ./install.sh
-#
-# HOW IT WORKS:
-# - Detects the project directory automatically
-# - Sets DATABASE_URL to the correct absolute path
-#   for this system (works on ANY Linux/Unix)
-# - All internal paths are computed dynamically
-# ============================================
-set -e
+set -euo pipefail
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m'
+# RECO-TRADING installer
+# Goal: one-command setup on Linux/Termux
 
-# ---- Detect where this script is located ----
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
-echo ""
-echo -e "${CYAN}╔══════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║       RECO-TRADING DASHBOARD INSTALLER       ║${NC}"
-echo -e "${CYAN}║    Professional Crypto Trading System         ║${NC}"
-echo -e "${CYAN}╚══════════════════════════════════════════════╝${NC}"
-echo ""
-echo -e "${BLUE}[INFO]${NC} Project directory: $ROOT_DIR"
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+RED='\033[0;31m'
+NC='\033[0m'
 
-# Parse flags
-FORCE=false
-if [[ "$1" == "--force" ]] || [[ "$1" == "-f" ]]; then
-  FORCE=true
-  echo -e "${YELLOW}  ⚠ Force mode enabled — will rebuild everything${NC}"
-fi
+log() { echo -e "${BLUE}[install]${NC} $*"; }
+ok() { echo -e "${GREEN}[ok]${NC} $*"; }
+warn() { echo -e "${YELLOW}[warn]${NC} $*"; }
+err() { echo -e "${RED}[error]${NC} $*"; }
 
-# ---- Check OS ----
-OS=$(uname -s 2>/dev/null || echo "unknown")
-echo -e "${BLUE}[INFO]${NC} Operating system: $OS"
+OS_KIND="unknown"
+PKG_INSTALL=""
+PKG_UPDATE=""
 
-SKIP_COUNT=0
-INSTALL_COUNT=0
-
-# ---- Helper: mark step as skipped ----
-skip_step() {
-  SKIP_COUNT=$((SKIP_COUNT + 1))
-  echo -e "${GREEN}  ✓${NC} $1 (already installed)"
+is_termux() {
+  [[ -n "${PREFIX:-}" && "${PREFIX:-}" == *"com.termux"* ]]
 }
 
-# ---- Helper: mark step as installing ----
-install_step() {
-  INSTALL_COUNT=$((INSTALL_COUNT + 1))
-  echo -e "${BLUE}  →${NC} $1"
+detect_os() {
+  if is_termux || command -v pkg >/dev/null 2>&1; then
+    OS_KIND="termux"
+    PKG_UPDATE="pkg update -y"
+    PKG_INSTALL="pkg install -y"
+    return
+  fi
+
+  if command -v apt-get >/dev/null 2>&1; then
+    OS_KIND="debian"
+    PKG_UPDATE="sudo apt-get update -y"
+    PKG_INSTALL="sudo apt-get install -y"
+    return
+  fi
+  if command -v dnf >/dev/null 2>&1; then
+    OS_KIND="fedora"
+    PKG_UPDATE="sudo dnf makecache"
+    PKG_INSTALL="sudo dnf install -y"
+    return
+  fi
+  if command -v yum >/dev/null 2>&1; then
+    OS_KIND="rhel"
+    PKG_UPDATE="sudo yum makecache"
+    PKG_INSTALL="sudo yum install -y"
+    return
+  fi
+  if command -v pacman >/dev/null 2>&1; then
+    OS_KIND="arch"
+    PKG_UPDATE="sudo pacman -Sy"
+    PKG_INSTALL="sudo pacman --noconfirm -S"
+    return
+  fi
+  if command -v apk >/dev/null 2>&1; then
+    OS_KIND="alpine"
+    PKG_UPDATE="sudo apk update"
+    PKG_INSTALL="sudo apk add"
+    return
+  fi
 }
 
-# ---- Step 1: Install Bun ----
-echo ""
-echo -e "${YELLOW}[1/6]${NC} Checking Bun runtime..."
-if command -v bun &>/dev/null; then
-  BUN_VERSION=$(bun --version)
-  skip_step "Bun v${BUN_VERSION}"
-else
-  install_step "Installing Bun..."
+install_base_packages() {
+  if [[ -z "$PKG_INSTALL" ]]; then
+    warn "No package manager auto-detected. Skipping OS package install."
+    return
+  fi
+
+  log "Detected environment: $OS_KIND"
+  eval "$PKG_UPDATE" || true
+
+  case "$OS_KIND" in
+    termux)
+      eval "$PKG_INSTALL curl git openssl jq sqlite nodejs-lts" || true
+      ;;
+    debian)
+      eval "$PKG_INSTALL curl git openssl jq sqlite3 ca-certificates lsof" || true
+      eval "$PKG_INSTALL nodejs npm" || true
+      ;;
+    fedora|rhel)
+      eval "$PKG_INSTALL curl git openssl jq sqlite ca-certificates lsof nodejs npm" || true
+      ;;
+    arch)
+      eval "$PKG_INSTALL curl git openssl jq sqlite ca-certificates lsof nodejs npm" || true
+      ;;
+    alpine)
+      eval "$PKG_INSTALL curl git openssl jq sqlite ca-certificates lsof nodejs npm" || true
+      ;;
+  esac
+}
+
+ensure_bun() {
+  if command -v bun >/dev/null 2>&1; then
+    ok "Bun found: $(bun --version)"
+    return
+  fi
+
+  log "Installing Bun runtime..."
   curl -fsSL https://bun.sh/install | bash
   export PATH="$HOME/.bun/bin:$PATH"
-  # Also add to profile if not there
-  for PROFILE_FILE in "$HOME/.bashrc" "$HOME/.profile" "$HOME/.zshrc"; do
-    if [ -f "$PROFILE_FILE" ] && ! grep -q ".bun/bin" "$PROFILE_FILE" 2>/dev/null; then
-      echo 'export PATH="$HOME/.bun/bin:$PATH"' >> "$PROFILE_FILE"
-    fi
-  done
-  echo -e "${GREEN}  ✓${NC} Bun installed: $(bun --version)"
-fi
-
-# ---- Step 2: Create / fix .env ----
-echo ""
-echo -e "${YELLOW}[2/6]${NC} Configuring environment (.env)..."
-
-# Database path: dynamically computed from where the script is right now.
-# This always points to <project>/data/reco_trading.db no matter
-# where the folder is located on any system.
-DB_DIR="$ROOT_DIR/data"
-DB_FILE="$DB_DIR/reco_trading.db"
-DB_URL="file:$DB_FILE"
-
-if [ -f .env ]; then
-  skip_step ".env already exists (API keys preserved)"
-  echo -e "${BLUE}  →${NC} To regenerate: delete .env and run install.sh again"
-
-  # ---- Auto-fix DATABASE_URL to match current location ----
-  CURRENT_DB_URL=$(grep -E '^DATABASE_URL=' .env 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"' | tr -d "'")
-  CURRENT_DB_PATH="${CURRENT_DB_URL#file:}"
-
-  NEED_FIX=false
-  if [ -z "$CURRENT_DB_URL" ]; then
-    NEED_FIX=true
-    echo -e "${YELLOW}  ⚠${NC} DATABASE_URL missing from .env"
-  elif [ "$CURRENT_DB_PATH" != "$DB_FILE" ]; then
-    NEED_FIX=true
-    echo -e "${YELLOW}  ⚠${NC} DATABASE_URL points to: $CURRENT_DB_PATH"
-    echo -e "${YELLOW}  ⚠${NC} Correcting to: $DB_FILE"
+  if ! command -v bun >/dev/null 2>&1; then
+    err "Bun installation failed."
+    exit 1
   fi
+  ok "Bun installed: $(bun --version)"
+}
 
-  if [ "$NEED_FIX" = true ]; then
-    if grep -q '^DATABASE_URL=' .env 2>/dev/null; then
-      sed -i "s|^DATABASE_URL=.*|DATABASE_URL=$DB_URL|" .env
-    else
-      echo "DATABASE_URL=$DB_URL" >> .env
-    fi
-    echo -e "${GREEN}  ✓${NC} DATABASE_URL corrected to: $DB_URL"
+update_or_add_env() {
+  local key="$1"
+  local value="$2"
+  local file="$3"
+
+  if grep -q "^${key}=" "$file" 2>/dev/null; then
+    awk -v k="$key" -v v="$value" 'BEGIN{FS=OFS="="} $1==k{$0=k"="v} {print}' "$file" > "$file.tmp"
+    mv "$file.tmp" "$file"
+  else
+    echo "${key}=${value}" >> "$file"
   fi
-else
-  install_step "Creating .env file..."
+}
 
-  # Generate random session secret
-  SESSION_SECRET=$(openssl rand -hex 32 2>/dev/null || echo "reco-trading-secret-change-me-$(date +%s)")
+setup_env() {
+  local db_dir="$ROOT_DIR/data"
+  local db_file="$db_dir/reco_trading.db"
+  local db_url="file:$db_file"
+  mkdir -p "$db_dir" "$ROOT_DIR/logs"
 
-  cat > .env << ENVFILE
-# ============================================
-# RECO-TRADING - Environment Configuration
-# ============================================
-# Generated by install.sh on $(date '+%Y-%m-%d %H:%M:%S')
-# Path auto-detected: $ROOT_DIR
-# ============================================
+  if [[ ! -f .env ]]; then
+    log "Creating .env with safe defaults (Weltrade-first)..."
+    local session_secret
+    session_secret=$(openssl rand -hex 32 2>/dev/null || echo "reco-secret-$(date +%s)")
 
-# ---- DATABASE ----
-# SQLite database (auto-detected path for this system)
-DATABASE_URL=$DB_URL
+    cat > .env <<EOF
+DATABASE_URL=$db_url
 
-# ---- BROKER CREDENTIALS ----
-# IMPORTANT: Configure OANDA as primary broker
-# OANDA: https://www.oanda.com/
-OANDA_ACCOUNT_ID=your_oanda_account_id_here
-OANDA_API_TOKEN=your_oanda_api_token_here
-
-# Active broker: oanda | weltrade_mt5
-BROKER_ACTIVE=oanda
-
-# Weltrade MT5 bridge (optional)
-WELTRADE_MT5_LOGIN=your_mt5_login
-WELTRADE_MT5_PASSWORD=your_mt5_password
-WELTRADE_MT5_SERVER=your_mt5_server
-WELTRADE_MT5_IS_DEMO=true
-WELTRADE_MT5_BRIDGE_URL=http://127.0.0.1:5001
-# ---- TRADING CONFIG ----
+BROKER_ACTIVE=weltrade_mt5
 TRADING_SYMBOL=XAU_USD
 PRIMARY_TIMEFRAME=5m
 CONFIRMATION_TIMEFRAME=15m
-# Use testnet (true = testnet with fake money, false = real money!)
+
+WELTRADE_MT5_LOGIN=
+WELTRADE_MT5_PASSWORD=
+WELTRADE_MT5_SERVER=
+WELTRADE_MT5_IS_DEMO=true
+WELTRADE_MT5_BRIDGE_URL=http://127.0.0.1:5001
+WELTRADE_MT5_TIMEOUT_MS=10000
+
+OANDA_ACCOUNT_ID=
+OANDA_API_TOKEN=
 OANDA_IS_DEMO=true
 
-# ---- RISK MANAGEMENT ----
 RISK_PER_TRADE=1.0
 MAX_DAILY_LOSS=3.0
 MAX_DRAWDOWN=10.0
 MAX_TRADES_PER_DAY=120
-MIN_CONFIDENCE=0.62
+MIN_CONFIDENCE=0.25
 
-# ---- CAPITAL ----
 INITIAL_CAPITAL=1000.0
 CAPITAL_MODE=MEDIUM
 
-# ---- DASHBOARD ----
 DASHBOARD_PORT=3000
-DASHBOARD_AUTH_ENABLED=false
-DASHBOARD_USERNAME=admin
-DASHBOARD_PASSWORD=reco_trading_2024
-
-# ---- SESSION ----
-NEXTAUTH_SECRET=$SESSION_SECRET
+NEXTAUTH_SECRET=$session_secret
 NEXTAUTH_URL=http://localhost:3000
-
-# ---- FLASK BOT (optional) ----
-BOT_API_URL=http://localhost:9000
-ENVFILE
-
-  chmod 600 .env
-  echo -e "${GREEN}  ✓${NC} .env created successfully"
-  echo -e "${BLUE}  →${NC} Edit .env and add your broker credentials before trading!"
-fi
-
-# ---- Create local directories ----
-echo -e "${BLUE}  →${NC} Ensuring local directories..."
-mkdir -p "$DB_DIR"
-mkdir -p "$ROOT_DIR/logs"
-echo -e "${GREEN}  ✓${NC} Directories ready: data/ logs/"
-
-# ---- Step 3: Install Node.js dependencies ----
-echo ""
-echo -e "${YELLOW}[3/6]${NC} Installing dependencies..."
-
-if [ -d "node_modules" ] && ([ -f "bun.lock" ] || [ -f "bun.lockb" ]) && [ "$FORCE" != "true" ]; then
-  # Check if lockfile is newer than node_modules
-  LOCK_FILE="bun.lock"
-  [ ! -f "$LOCK_FILE" ] && LOCK_FILE="bun.lockb"
-  LOCK_MTIME=$(stat -c %Y "$LOCK_FILE" 2>/dev/null || stat -f %m "$LOCK_FILE" 2>/dev/null || echo 0)
-  NM_MTIME=$(stat -c %Y node_modules 2>/dev/null || stat -f %m node_modules 2>/dev/null || echo 0)
-
-  if [ "$NM_MTIME" -gt "$LOCK_MTIME" ] && [ "$NM_MTIME" -ne 0 ]; then
-    skip_step "node_modules up to date"
+EOF
+    chmod 600 .env || true
+    ok ".env created"
   else
-    echo -e "${BLUE}  →${NC} Dependencies may be outdated, updating..."
-    bun install
-    echo -e "${GREEN}  ✓${NC} Dependencies updated"
+    log "Updating critical .env keys without deleting your config..."
+    update_or_add_env "DATABASE_URL" "$db_url" .env
+    update_or_add_env "BROKER_ACTIVE" "weltrade_mt5" .env
+    update_or_add_env "TRADING_SYMBOL" "XAU_USD" .env
+    update_or_add_env "WELTRADE_MT5_BRIDGE_URL" "http://127.0.0.1:5001" .env
+    update_or_add_env "WELTRADE_MT5_TIMEOUT_MS" "10000" .env
+    ok ".env normalized"
   fi
-elif [ "$FORCE" = "true" ]; then
-  install_step "Force reinstalling all dependencies..."
+}
+
+install_app_deps() {
+  log "Installing app dependencies..."
   bun install
-  echo -e "${GREEN}  ✓${NC} Dependencies installed"
-else
-  install_step "Installing dependencies (this may take a minute)..."
-  bun install
-  echo -e "${GREEN}  ✓${NC} Dependencies installed"
-fi
+  ok "Dependencies installed"
+}
 
-# ---- Step 4: Setup Prisma + Database ----
-echo ""
-echo -e "${YELLOW}[4/6]${NC} Setting up database..."
+setup_db() {
+  log "Setting up Prisma and database..."
+  bunx prisma generate
+  bunx prisma db push --skip-generate
+  ok "Database ready"
+}
 
-# Ensure data directory exists before Prisma operations
-mkdir -p "$DB_DIR"
-
-# Override DATABASE_URL to match current location (even if .env is stale)
-export DATABASE_URL="$DB_URL"
-
-# Generate Prisma client
-echo -e "${BLUE}  →${NC} Generating Prisma client..."
-bunx prisma generate 2>&1 | tail -1
-echo -e "${GREEN}  ✓${NC} Prisma client generated"
-
-# Push schema to database (idempotent — safe to run multiple times)
-if [ "$FORCE" = "true" ]; then
-  echo -e "${BLUE}  →${NC} Force resetting database..."
-  bunx prisma db push --force-reset --skip-generate 2>&1 | tail -1
-else
-  echo -e "${BLUE}  →${NC} Syncing database schema..."
-  bunx prisma db push --skip-generate 2>&1 | tail -1
-fi
-echo -e "${GREEN}  ✓${NC} Database configured"
-
-# ---- Step 5: Build the application ----
-echo ""
-echo -e "${YELLOW}[5/6]${NC} Building application..."
-
-# Always clean build caches and lock files to prevent stale type errors
-echo -e "${BLUE}  →${NC} Cleaning build caches..."
-rm -rf .next/lock .next/cache .next 2>/dev/null || true
-
-if [ "$FORCE" = "true" ]; then
-  install_step "Force rebuild..."
+build_app() {
+  log "Building production bundle..."
+  rm -rf .next || true
   bun run build
-  echo -e "${GREEN}  ✓${NC} Build complete"
-else
-  install_step "Building application..."
-  bun run build
-  echo -e "${GREEN}  ✓${NC} Build complete"
-fi
+  ok "Build completed"
+}
 
-# ---- Step 6: Final checks ----
-echo ""
-echo -e "${YELLOW}[6/6]${NC} Final checks..."
-mkdir -p "$DB_DIR"
-mkdir -p "$ROOT_DIR/logs"
+main() {
+  log "Starting automated installation in: $ROOT_DIR"
+  detect_os
+  install_base_packages
+  ensure_bun
+  setup_env
+  install_app_deps
+  setup_db
+  build_app
 
-# Verify database file was created
-if [ -f "$DB_FILE" ]; then
-  DB_SIZE=$(du -h "$DB_FILE" 2>/dev/null | cut -f1)
-  echo -e "${GREEN}  ✓${NC} Database ready: data/reco_trading.db ($DB_SIZE)"
-else
-  echo -e "${YELLOW}  ⚠${NC} Database file not found, but will be created on first run"
-fi
+  echo ""
+  ok "Installation complete."
+  echo "Next step: ./run.sh"
+  echo "Then open: http://localhost:3000"
+  echo "Set Weltrade credentials in Dashboard > Settings."
+}
 
-echo -e "${GREEN}  ✓${NC} All runtime directories ready"
-
-# ---- Summary ----
-echo ""
-echo -e "${CYAN}══════════════════════════════════════════════${NC}"
-echo -e "${GREEN}  ✓ INSTALLATION COMPLETE!${NC}"
-echo -e "${CYAN}══════════════════════════════════════════════${NC}"
-echo ""
-echo -e "  Project path:     ${BLUE}$ROOT_DIR${NC}"
-echo -e "  Database:         ${BLUE}data/reco_trading.db${NC}"
-echo -e "  Steps skipped:    ${GREEN}${SKIP_COUNT}${NC}"
-echo -e "  Steps executed:   ${BLUE}${INSTALL_COUNT}${NC}"
-echo ""
-echo -e "${YELLOW}NEXT STEPS:${NC}"
-echo ""
-echo -e "  1. ${BLUE}Edit your API keys:${NC}"
-echo -e "     nano .env"
-echo -e "     Set BROKER_ACTIVE, OANDA_ACCOUNT_ID and OANDA_API_TOKEN"
-echo ""
-echo -e "  2. ${BLUE}Start the dashboard (development):${NC}"
-echo -e "     ./dev.sh"
-echo ""
-echo -e "  3. ${BLUE}Start the dashboard (production):${NC}"
-echo -e "     ./run.sh"
-echo ""
-echo -e "  4. ${BLUE}Access the dashboard:${NC}"
-echo -e "     http://localhost:${DASHBOARD_PORT:-3000}"
-echo ""
-echo -e "  ${BLUE}Tip:${NC} Run ${YELLOW}./install.sh --force${NC} to force rebuild everything"
-echo ""
-echo -e "${RED}⚠  WARNING:${NC}"
-echo -e "  - OANDA_IS_DEMO=true (using demo, no real money)"
-echo -e "  - Set to 'false' ONLY when you are ready to trade for real"
-echo -e "  - Always test with demo first!"
-echo ""
-
+main "$@"
