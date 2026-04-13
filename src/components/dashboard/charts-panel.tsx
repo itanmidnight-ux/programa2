@@ -42,6 +42,7 @@ export function ChartsPanel() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hover, setHover] = useState<CandleData | null>(null);
+  const [mounted, setMounted] = useState(false);
 
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<any>(null);
@@ -84,6 +85,10 @@ export function ChartsPanel() {
       setIsLoading(false);
     }
   }, [selectedPair, activeTf, setPairCandles]);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     fetchCandles();
@@ -237,7 +242,15 @@ export function ChartsPanel() {
               {isUp ? "+" : ""}{pairChange.toFixed(2)}%
             </span>
             <span className="text-xs text-gray-500">
-              NY: {new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(new Date())}
+              NY: {mounted
+                ? new Intl.DateTimeFormat("en-US", {
+                    timeZone: "America/New_York",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit",
+                    hour12: false,
+                  }).format(new Date())
+                : "--:--:--"}
             </span>
           </div>
           <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">

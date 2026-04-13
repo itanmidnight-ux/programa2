@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   useTradingStore,
@@ -359,5 +359,19 @@ function DashboardContent() {
 }
 
 export default function Page() {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    return (
+      <div className="h-screen w-screen bg-[#0a0e17] flex items-center justify-center text-gray-400">
+        Loading dashboard...
+      </div>
+    );
+  }
+
   return <DashboardContent />;
 }

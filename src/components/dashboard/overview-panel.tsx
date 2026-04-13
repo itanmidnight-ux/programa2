@@ -69,28 +69,35 @@ function WinRateGauge({ winRate, wins, losses }: { winRate: number; wins: number
 }
 
 function UsMarketClock() {
-  const [now, setNow] = useState(new Date());
+  const [mounted, setMounted] = useState(false);
+  const [now, setNow] = useState<Date | null>(null);
 
   useEffect(() => {
+    setMounted(true);
+    setNow(new Date());
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
 
-  const time = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).format(now);
+  const time = mounted && now
+    ? new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+      }).format(now)
+    : "--:--:--";
 
-  const date = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    weekday: "short",
-    month: "short",
-    day: "2-digit",
-    year: "numeric",
-  }).format(now);
+  const date = mounted && now
+    ? new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York",
+        weekday: "short",
+        month: "short",
+        day: "2-digit",
+        year: "numeric",
+      }).format(now)
+    : "Loading...";
 
   return (
     <div className="glass-card rounded-xl p-3 border border-white/[0.08] min-w-[220px]">
