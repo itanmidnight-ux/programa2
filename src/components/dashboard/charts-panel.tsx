@@ -1,39 +1,39 @@
-"use client";
+﻿"use client";
 
-import { useState, useMemo, useEffect, useCallback } from "react";
-import { motion } from "framer-motion";
-import { ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
-import { useTradingStore, type CandleData, type PairCandlesData } from "@/lib/trading-store";
-import { formatSymbolPrice } from "@/lib/format-utils";
-import { formatTime, cn } from "@/lib/utils";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { createChart, CrosshairMode, CandlestickSeries, HistogramSeries, LineSeries } from "lightweight-charts";
 import { Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { useTradingStore, type CandleData, type PairCandlesData } from "@/lib/trading-store";
 
 type Timeframe = "1m" | "5m" | "15m" | "1h" | "4h";
-
 const timeframes: Timeframe[] = ["1m", "5m", "15m", "1h", "4h"];
 
-const CustomTooltip = ({ active, payload }: { active?: boolean; payload?: any[] }) => {
-  if (!active || !payload?.[0]) return null;
-  const d = payload[0].payload;
-  const isUp = d.close >= d.open;
-  return (
-    <div className="bg-[#1a2332] border border-white/[0.1] rounded-lg p-3 text-xs shadow-xl">
-      <div className="text-gray-500 mb-1.5 font-mono">{new Date(d.time * 1000).toLocaleString()}</div>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-        <div className="text-gray-500">Open</div>
-        <div className="font-mono text-white">{d.open.toFixed(2)}</div>
-        <div className="text-gray-500">High</div>
-        <div className="font-mono text-emerald-400">{d.high.toFixed(2)}</div>
-        <div className="text-gray-500">Low</div>
-        <div className="font-mono text-red-400">{d.low.toFixed(2)}</div>
-        <div className="text-gray-500">Close</div>
-        <div className={cn("font-mono", isUp ? "text-emerald-400" : "text-red-400")}>{d.close.toFixed(2)}</div>
-        <div className="text-gray-500">Volume</div>
-        <div className="font-mono text-blue-400">{d.volume.toFixed(2)}</div>
-      </div>
-    </div>
-  );
-};
+function toUnixSec(t: number): number {
+  return t > 1_000_000_000_000 ? Math.floor(t / 1000) : Math.floor(t);
+}
+
+function formatNyTime(sec: number) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(sec * 1000));
+}
+
+function rollingMA(candles: CandleData[], period: number) {
+  const out: Array<{ time: number; value: number }> = [];
+  if (candles.length < period) return out;
+  for (let i = period - 1; i < candles.length; i++) {
+    let s = 0;
+    for (let j = i - period + 1; j <= i; j++) s += candles[j].close;
+    out.push({ time: toUnixSec(candles[i].time), value: +(s / period).toFixed(3) });
+  }
+  return out;
+}
 
 export function ChartsPanel() {
   const { selectedPair, pairCandles, setPairCandles, pairPrices } = useTradingStore();
@@ -41,112 +41,215 @@ export function ChartsPanel() {
   const [showMA, setShowMA] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hover, setHover] = useState<CandleData | null>(null);
 
-  // Get current pair display name and price
+  const chartContainerRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<any>(null);
+  const candleSeriesRef = useRef<any>(null);
+  const volSeriesRef = useRef<any>(null);
+  const ma7Ref = useRef<any>(null);
+  const ma25Ref = useRef<any>(null);
+
   const currentPairData = pairPrices[selectedPair];
   const pairDisplay = selectedPair.replace("_", "/");
   const pairPrice = currentPairData?.price || 0;
   const pairChange = currentPairData?.change24h || 0;
 
-  // Fetch candles for the selected pair when it changes
   const fetchCandles = useCallback(async () => {
     if (!selectedPair) return;
     setIsLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/pairs/candles?symbol=${selectedPair}&interval=${activeTf}&limit=200`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.candles && Array.isArray(data.candles)) {
-          const candleData: PairCandlesData = {
-            symbol: data.symbol,
-            interval: data.interval,
-            candles: data.candles,
-            indicators: data.indicators || { ma7: null, ma25: null, ma99: null, rsi: 50, volume_avg: 0 },
-            lastFetch: data.timestamp,
-          };
-          setPairCandles(candleData);
-        }
-      } else {
-        setError("Failed to fetch candles");
+      const res = await fetch(`/api/pairs/candles?symbol=${selectedPair}&interval=${activeTf}&limit=220`);
+      if (!res.ok) {
+        setError("Failed to load market candles");
+        return;
       }
+      const data = await res.json();
+      if (!Array.isArray(data?.candles)) {
+        setError("Invalid candle payload");
+        return;
+      }
+      const candleData: PairCandlesData = {
+        symbol: data.symbol,
+        interval: data.interval,
+        candles: data.candles,
+        indicators: data.indicators || { ma7: null, ma25: null, ma99: null, rsi: 50, volume_avg: 0 },
+        lastFetch: data.timestamp,
+      };
+      setPairCandles(candleData);
     } catch {
-      setError("Network error fetching candles");
+      setError("Network error while fetching candles");
     } finally {
       setIsLoading(false);
     }
   }, [selectedPair, activeTf, setPairCandles]);
 
-  // Fetch candles when pair or timeframe changes
   useEffect(() => {
     fetchCandles();
   }, [fetchCandles]);
 
-  // Auto-refresh every 15 seconds
   useEffect(() => {
-    const interval = setInterval(fetchCandles, 15000);
-    return () => clearInterval(interval);
+    const id = setInterval(fetchCandles, 15000);
+    return () => clearInterval(id);
   }, [fetchCandles]);
 
-  const candles = useMemo(() => {
-    if (!pairCandles?.candles) return [];
-    return pairCandles.candles.slice(-100);
-  }, [pairCandles]);
+  const candles = useMemo(() => (pairCandles?.candles || []).slice(-180), [pairCandles]);
+  const lastCandle = hover || candles[candles.length - 1] || null;
 
-  // Calculate MAs
-  const ma7 = useMemo(() => {
-    return candles.map((c, i) => {
-      if (i < 7) return { ...c, ma7: null };
-      const sum = candles.slice(i - 7, i).reduce((s, x) => s + x.close, 0) / 7;
-      return { ...c, ma7: +sum.toFixed(2) };
+  useEffect(() => {
+    if (!chartContainerRef.current) return;
+
+    const chart = createChart(chartContainerRef.current, {
+      layout: {
+        background: { color: "#0b1220" },
+        textColor: "#9ca3af",
+      },
+      grid: {
+        vertLines: { color: "rgba(148,163,184,0.08)" },
+        horzLines: { color: "rgba(148,163,184,0.08)" },
+      },
+      rightPriceScale: { borderColor: "rgba(148,163,184,0.15)" },
+      timeScale: {
+        borderColor: "rgba(148,163,184,0.15)",
+        timeVisible: true,
+        secondsVisible: false,
+      },
+      crosshair: { mode: CrosshairMode.Normal },
+      localization: {
+        timeFormatter: (time: any) => formatNyTime(Number(time)),
+      },
+      autoSize: true,
+    } as any);
+
+    const candleSeries = chart.addSeries(CandlestickSeries, {
+      upColor: "#10b981",
+      downColor: "#ef4444",
+      borderVisible: false,
+      wickUpColor: "#34d399",
+      wickDownColor: "#f87171",
+      priceLineVisible: true,
+      lastValueVisible: true,
     });
-  }, [candles]);
 
-  const ma25 = useMemo(() => {
-    return ma7.map((c, i) => {
-      if (i < 25) return { ...c, ma25: null };
-      const sum = candles.slice(i - 25, i).reduce((s, x) => s + x.close, 0) / 25;
-      return { ...c, ma25: +sum.toFixed(2) };
+    const volumeSeries = chart.addSeries(HistogramSeries, {
+      priceScaleId: "",
+      priceFormat: { type: "volume" },
+      lastValueVisible: false,
+      priceLineVisible: false,
     });
-  }, [ma7, candles]);
 
-  const allPrices = candles.flatMap((c) => [c.high, c.low]);
-  const minPrice = allPrices.length > 0 ? Math.min(...allPrices) : 0;
-  const maxPrice = allPrices.length > 0 ? Math.max(...allPrices) : 0;
-  const padding = (maxPrice - minPrice) * 0.1 || 1;
+    chart.priceScale("").applyOptions({ scaleMargins: { top: 0.78, bottom: 0 } });
+    chart.priceScale("right").applyOptions({ scaleMargins: { top: 0.08, bottom: 0.24 } });
 
-  const maxVol = candles.length > 0 ? Math.max(...candles.map((c) => c.volume)) : 1;
+    const ma7 = chart.addSeries(LineSeries, { color: "#f59e0b", lineWidth: 2, lastValueVisible: false, priceLineVisible: false });
+    const ma25 = chart.addSeries(LineSeries, { color: "#8b5cf6", lineWidth: 2, lastValueVisible: false, priceLineVisible: false });
+
+    chart.subscribeCrosshairMove((param: any) => {
+      if (!param?.seriesData) {
+        setHover(null);
+        return;
+      }
+      const c = param.seriesData.get(candleSeries);
+      if (!c) {
+        setHover(null);
+        return;
+      }
+      setHover({
+        time: Number(param.time || 0),
+        open: Number(c.open || 0),
+        high: Number(c.high || 0),
+        low: Number(c.low || 0),
+        close: Number(c.close || 0),
+        volume: 0,
+      });
+    });
+
+    chartRef.current = chart;
+    candleSeriesRef.current = candleSeries;
+    volSeriesRef.current = volumeSeries;
+    ma7Ref.current = ma7;
+    ma25Ref.current = ma25;
+
+    const ro = new ResizeObserver(() => {
+      if (!chartContainerRef.current) return;
+      chart.applyOptions({ width: chartContainerRef.current.clientWidth, height: chartContainerRef.current.clientHeight });
+    });
+    ro.observe(chartContainerRef.current);
+
+    return () => {
+      ro.disconnect();
+      chart.remove();
+      chartRef.current = null;
+      candleSeriesRef.current = null;
+      volSeriesRef.current = null;
+      ma7Ref.current = null;
+      ma25Ref.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!candleSeriesRef.current || !volSeriesRef.current) return;
+
+    const candleData = candles.map((c) => ({
+      time: toUnixSec(c.time),
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+    }));
+
+    const volumeData = candles.map((c) => ({
+      time: toUnixSec(c.time),
+      value: c.volume,
+      color: c.close >= c.open ? "rgba(16,185,129,.35)" : "rgba(239,68,68,.35)",
+    }));
+
+    candleSeriesRef.current.setData(candleData);
+    volSeriesRef.current.setData(volumeData);
+
+    if (showMA && ma7Ref.current && ma25Ref.current) {
+      ma7Ref.current.setData(rollingMA(candles, 7));
+      ma25Ref.current.setData(rollingMA(candles, 25));
+    } else {
+      ma7Ref.current?.setData([]);
+      ma25Ref.current?.setData([]);
+    }
+
+    chartRef.current?.timeScale().fitContent();
+  }, [candles, showMA]);
 
   const rsi = pairCandles?.indicators?.rsi || 50;
+  const isUp = pairChange >= 0;
 
   return (
     <div className="space-y-4 p-4 lg:p-6 max-h-[calc(100vh-3.5rem)] overflow-y-auto custom-scrollbar">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <h2 className="text-lg font-bold text-white">{pairDisplay}</h2>
             {pairPrice > 0 && (
-              <span className="text-lg font-mono font-semibold text-white">${pairPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-            )}
-            {pairChange !== 0 && (
-              <span className={`text-sm font-mono font-medium px-2 py-0.5 rounded ${pairChange >= 0 ? "text-emerald-400 bg-emerald-400/10" : "text-red-400 bg-red-400/10"}`}>
-                {pairChange >= 0 ? "+" : ""}{pairChange.toFixed(2)}%
+              <span className="text-lg font-mono font-semibold text-white">
+                ${pairPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
             )}
+            <span className={cn("text-sm font-mono font-medium px-2 py-0.5 rounded", isUp ? "text-emerald-400 bg-emerald-400/10" : "text-red-400 bg-red-400/10")}>
+              {isUp ? "+" : ""}{pairChange.toFixed(2)}%
+            </span>
+            <span className="text-xs text-gray-500">
+              NY: {new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(new Date())}
+            </span>
           </div>
-          <div className="flex items-center gap-3 mt-1">
-            <p className="text-xs text-gray-500">{candles.length} candles · {activeTf}</p>
-            {pairCandles?.indicators && (
-              <div className="flex items-center gap-2">
-                <span className={`text-xs font-mono ${rsi > 70 ? "text-red-400" : rsi < 30 ? "text-emerald-400" : "text-gray-400"}`}>
-                  RSI: {rsi.toFixed(1)}
-                </span>
-              </div>
-            )}
+          <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+            <span>{candles.length} candles</span>
+            <span>·</span>
+            <span>{activeTf}</span>
+            <span>·</span>
+            <span className={cn(rsi > 70 ? "text-red-400" : rsi < 30 ? "text-emerald-400" : "text-gray-400")}>RSI: {rsi.toFixed(1)}</span>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+
+        <div className="flex items-center gap-2 flex-wrap">
           {timeframes.map((tf) => (
             <button
               key={tf}
@@ -161,144 +264,58 @@ export function ChartsPanel() {
               {tf}
             </button>
           ))}
-          <div className="w-px h-5 bg-white/[0.08] mx-1" />
           <button
-            onClick={() => setShowMA(!showMA)}
+            onClick={() => setShowMA((v) => !v)}
             className={cn(
               "px-3 py-1.5 text-xs font-medium rounded-lg transition-all border",
-              showMA
-                ? "bg-purple-500/15 text-purple-400 border-purple-500/20"
-                : "text-gray-500 hover:text-gray-300 border-transparent hover:bg-white/[0.04]"
+              showMA ? "bg-purple-500/15 text-purple-400 border-purple-500/20" : "text-gray-500 hover:text-gray-300 border-transparent hover:bg-white/[0.04]"
             )}
           >
             MA
           </button>
           <button
             onClick={fetchCandles}
-            className={cn(
-              "px-3 py-1.5 text-xs font-medium rounded-lg transition-all border",
-              "text-gray-500 hover:text-gray-300 border-transparent hover:bg-white/[0.04]"
-            )}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg transition-all border text-gray-500 hover:text-gray-300 border-transparent hover:bg-white/[0.04]"
+            title="Refresh"
           >
             {isLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : "↻"}
           </button>
         </div>
       </div>
 
-      {/* Error State */}
       {error && (
         <div className="glass-card rounded-xl p-4 border border-red-500/20">
           <p className="text-xs text-red-400">{error}</p>
-          <button onClick={fetchCandles} className="text-xs text-blue-400 hover:underline mt-1">Retry</button>
         </div>
       )}
 
-      {/* Loading State */}
       {isLoading && candles.length === 0 && (
         <div className="glass-card rounded-xl p-12 flex flex-col items-center justify-center gap-3">
           <Loader2 className="h-8 w-8 text-blue-400 animate-spin" />
-          <p className="text-sm text-gray-400">Loading {pairDisplay} chart...</p>
+          <p className="text-sm text-gray-400">Loading chart...</p>
         </div>
       )}
 
-      {/* Chart */}
-      {!isLoading && candles.length === 0 && !error && (
-        <div className="glass-card rounded-xl p-12 flex flex-col items-center justify-center gap-3">
-          <p className="text-sm text-gray-400">No candle data available</p>
-          <button onClick={fetchCandles} className="text-xs text-blue-400 hover:underline">Load chart</button>
-        </div>
-      )}
-
-      {candles.length > 0 && (
-        <div className="glass-card rounded-xl p-4">
-          <div className="h-[400px] lg:h-[500px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={ma25} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-                <XAxis
-                  dataKey="time"
-                  tickFormatter={formatTime}
-                  tick={{ fontSize: 10, fill: "#6b7280" }}
-                  axisLine={{ stroke: "rgba(255,255,255,0.06)" }}
-                  tickLine={false}
-                  minTickGap={60}
-                />
-                <YAxis
-                  domain={[minPrice - padding, maxPrice + padding]}
-                  tick={{ fontSize: 10, fill: "#6b7280" }}
-                  axisLine={{ stroke: "rgba(255,255,255,0.06)" }}
-                  tickLine={false}
-                  tickFormatter={(v: number) => v.toFixed(0)}
-                  yAxisId="price"
-                  width={60}
-                />
-                <YAxis
-                  domain={[0, maxVol * 1.5]}
-                  tick={false}
-                  axisLine={false}
-                  tickLine={false}
-                  yAxisId="volume"
-                  orientation="right"
-                  width={0}
-                />
-                <Tooltip content={<CustomTooltip />} />
-                {/* Candlestick representation using bars */}
-                <Bar yAxisId="price" dataKey="close" isAnimationActive={false} barSize={4}>
-                  {ma25.map((entry, index) => {
-                    const isUp = entry.close >= entry.open;
-                    const diff = Math.abs(entry.close - entry.open);
-                    const h = diff > 0 ? (diff / (maxPrice - minPrice + padding)) * 400 : 1;
-                    return (
-                      <Cell
-                        key={`candle-${index}`}
-                        fill={isUp ? "#10b981" : "#ef4444"}
-                        opacity={isUp ? 0.9 : 0.9}
-                        height={h}
-                      />
-                    );
-                  })}
-                </Bar>
-                {/* Volume */}
-                <Bar yAxisId="volume" dataKey="volume" isAnimationActive={false} barSize={4} opacity={0.15} fill="#3b82f6" />
-                {/* MAs */}
-                {showMA && (
-                  <>
-                    <Line yAxisId="price" type="monotone" dataKey="ma7" stroke="#f59e0b" dot={false} strokeWidth={1} isAnimationActive={false} connectNulls />
-                    <Line yAxisId="price" type="monotone" dataKey="ma25" stroke="#8b5cf6" dot={false} strokeWidth={1} isAnimationActive={false} connectNulls />
-                  </>
-                )}
-              </ComposedChart>
-            </ResponsiveContainer>
+      {!isLoading && candles.length > 0 && (
+        <div className="glass-card rounded-xl p-4 space-y-3">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-2 text-[11px] font-mono">
+            <div className="rounded-md bg-white/[0.03] px-2 py-1"><span className="text-gray-500">O</span> <span className="text-white">{lastCandle?.open?.toFixed(2) || "-"}</span></div>
+            <div className="rounded-md bg-white/[0.03] px-2 py-1"><span className="text-gray-500">H</span> <span className="text-emerald-400">{lastCandle?.high?.toFixed(2) || "-"}</span></div>
+            <div className="rounded-md bg-white/[0.03] px-2 py-1"><span className="text-gray-500">L</span> <span className="text-red-400">{lastCandle?.low?.toFixed(2) || "-"}</span></div>
+            <div className="rounded-md bg-white/[0.03] px-2 py-1"><span className="text-gray-500">C</span> <span className="text-cyan-300">{lastCandle?.close?.toFixed(2) || "-"}</span></div>
+            <div className="rounded-md bg-white/[0.03] px-2 py-1"><span className="text-gray-500">RSI</span> <span className="text-yellow-300">{rsi.toFixed(1)}</span></div>
+            <div className="rounded-md bg-white/[0.03] px-2 py-1"><span className="text-gray-500">TZ</span> <span className="text-gray-300">US / NY</span></div>
           </div>
 
-          {/* Legend */}
-          <div className="flex items-center gap-4 mt-3 pt-3 border-t border-white/[0.06]">
-            {showMA && (
-              <>
-                <div className="flex items-center gap-1.5 text-xs">
-                  <div className="w-3 h-0.5 bg-yellow-500 rounded" />
-                  <span className="text-gray-500">MA 7</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-xs">
-                  <div className="w-3 h-0.5 bg-purple-500 rounded" />
-                  <span className="text-gray-500">MA 25</span>
-                </div>
-              </>
-            )}
-            <div className="flex items-center gap-1.5 text-xs">
-              <div className="w-3 h-0.5 bg-emerald-500 rounded" />
-              <span className="text-gray-500">Bullish</span>
-            </div>
-            <div className="flex items-center gap-1.5 text-xs">
-              <div className="w-3 h-0.5 bg-red-500 rounded" />
-              <span className="text-gray-500">Bearish</span>
-            </div>
-            <div className="flex items-center gap-1.5 text-xs">
-              <div className="w-3 h-2 bg-blue-500/30 rounded-sm" />
-              <span className="text-gray-500">Volume</span>
-            </div>
-            <div className="flex-1" />
-            <span className="text-[10px] text-gray-600">{pairDisplay} · {activeTf} · {candles.length} candles</span>
+          <div className="relative h-[440px] lg:h-[560px] rounded-lg overflow-hidden border border-white/[0.06]">
+            <div ref={chartContainerRef} className="absolute inset-0" />
+          </div>
+
+          <div className="flex items-center gap-4 text-xs text-gray-500">
+            <span className="inline-flex items-center gap-1"><span className="w-3 h-[2px] bg-yellow-500 inline-block" />MA7</span>
+            <span className="inline-flex items-center gap-1"><span className="w-3 h-[2px] bg-purple-500 inline-block" />MA25</span>
+            <span className="inline-flex items-center gap-1"><span className="w-3 h-[6px] bg-emerald-500/40 inline-block" />Vol Up</span>
+            <span className="inline-flex items-center gap-1"><span className="w-3 h-[6px] bg-red-500/40 inline-block" />Vol Down</span>
           </div>
         </div>
       )}
